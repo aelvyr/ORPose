@@ -1,0 +1,12 @@
+vis_dir/
+pose_outputs/
+inputs/
+videos/
+output_3d/
+intrinsics/
+extrinsics/
+bboxes/
+checkpoints/
+configs/
+
+__pycache__/
