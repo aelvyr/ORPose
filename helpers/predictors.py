@@ -1,59 +1,193 @@
 import os
 import cv2
 from tqdm import tqdm
-
 import numpy as np
-from mmdet.apis import inference_detector, init_detector
-from mmpose.evaluation.functional import nms
-from mmpose.utils import adapt_mmdet_pipeline
-
-from configs.yolo_hands.yolo import YOLO as YOLO_HANDS
-
 import torch
-from sam2.build_sam import build_sam2
-from sam2.build_sam import build_sam2_video_predictor
-
 import filetype
-
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from PIL import Image
 
+from mmdet.apis import inference_detector, init_detector
+from mmpose.evaluation.functional import nms
+from mmpose.utils import adapt_mmdet_pipeline
+from configs.yolo_hands.yolo import YOLO as YOLO_HANDS
+from mmpose.apis.inference import inference_topdown
+from mmpose.apis import init_model as init_pose_estimator
+from mmpose.structures import merge_data_samples, split_instances
+from mmpose.registry import VISUALIZERS
+import mmcv
+from ultralytics import YOLO
 
-'''      DEFINITIONS       '''
+# Remove the direct imports of SAM and TAM
+# Global variables for models
+predictor = None
+detector = None
+detector_person = None
+yolo_detector = None
 
-nms_thr = 0.3
-bbox_thr = 0.3
-body_bbox_thr = 0.4
-min_box_thr = 5
+'''      CONFIGURATION       '''
 
-yolo_size = 1024
-yolo_confidence = 0.85
+# Detection thresholds
+NMS_THRESHOLD = 0.3
+BBOX_THRESHOLD = 0.4
+BODY_BBOX_THRESHOLD = 0.4
+MIN_BOX_THRESHOLD = 5
+
+# YOLO configuration
+YOLO_SIZE = 1024
+YOLO_CONFIDENCE = 0.75
+
+# Model paths and configurations
+DETECTOR_CONFIG = 'configs/mmdet/cascade_rcnn_x101_64x4d_fpn_1class.py'
+DETECTOR_WEIGHTS = 'checkpoints/hands/detection/cascade_rcnn_x101_64x4d_fpn_20e_onehand10k-dac19597_20201030.pth'
+
+DETECTOR_PERSON_CONFIG = 'configs/mmdet/rtmdet_m_640-8xb32_coco-person.py'
+DETECTOR_PERSON_WEIGHTS = 'checkpoints/body/detection/rtmdet_m_8xb32-100e_coco-obj365-person-235e8209.pth'
+
+YOLO_CONFIG = "configs/yolo_hands/cross-hands-yolov4-tiny.cfg"
+YOLO_WEIGHTS = "checkpoints/hands/detection/cross-hands-yolov4-tiny.weights"
+
+SAM_CHECKPOINT = "./checkpoints/sam/sam2.1_hiera_small.pt"
+SAM_CONFIG = "configs/sam2.1/sam2.1_hiera_s.yaml"
+
+EFFICIENTTAM_CHECKPOINT = "./checkpoints/efficienttam/efficienttam_s_2.pt"
+EFFICIENTTAM_CONFIG = "configs/efficienttam/efficienttam_s_2.yaml"
+
+# YOLO Rohan model paths
+YOLO_PERSON_WEIGHTS = 'checkpoints/yolo/yolo11l.pt'
+YOLO_HAND_WEIGHTS = 'checkpoints/yolo/rohan_pretrained.pt'
+
+# Pose estimation model paths
+HAND_POSE_CONFIG = 'configs/hand_2d_keypoint/rtmpose/hand5/rtmpose-m_8xb256-210e_hand5-256x256.py'
+HAND_POSE_WEIGHTS = 'checkpoints/hands/rtmpose-m_simcc-hand5_pt-aic-coco_210e-256x256-74fb594_20230320.pth'
+
+BODY_POSE_CONFIG = 'configs/body_2d_keypoint/rtmpose/body8/rtmpose-x_8xb256-700e_body8-halpe26-384x288.py'
+BODY_POSE_WEIGHTS = 'checkpoints/body/rtmpose-x_simcc-body7_pt-body7-halpe26_700e-384x288-7fb6e239_20230606.pth'
+
+# Global variables for pose estimators
+pose_estimator_hand = None
+pose_estimator_body = None
+visualizer_hand = None 
+visualizer_body = None
+
+# Additional global variables
+yolo_person = None
+yolo_hand = None
+
+# Visualization settings for pose estimation
+POSE_VIS_RADIUS = 3
+POSE_VIS_ALPHA = 0.8
+POSE_VIS_LINE_WIDTH = 2
+POSE_KPT_THRESHOLD = 0.3
+
+# Device and compilation configuration
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+    # Check GPU compatibility for torch compile
+    gpu_capability = torch.cuda.get_device_capability()
+    enable_torch_compile = gpu_capability[0] >= 7  # Only enable for Volta (7.0) and newer GPUs
+else:
+    device = torch.device("cpu")
+    enable_torch_compile = False
+
+print(f"Device: {device}")
+print(f"Torch compile enabled: {enable_torch_compile}")
+
+# GPU optimization settings
+if device.type == "cuda":
+    # Use bfloat16 precision where supported
+    if torch.cuda.is_bf16_supported():
+        torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
+    
+    # Enable TF32 on Ampere GPUs
+    if torch.cuda.get_device_properties(0).major >= 8:
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+
 
 '''      MODEL INSTANTIATIONS       '''
 
-# build detectors
-detector = init_detector(
-    'configs/mmdet/cascade_rcnn_x101_64x4d_fpn_1class.py', 
-    'checkpoints/hands/detection/cascade_rcnn_x101_64x4d_fpn_20e_onehand10k-dac19597_20201030.pth',
-    device='cuda')
-detector.cfg = adapt_mmdet_pipeline(detector.cfg)
+def initialize_models(use_tam: bool):
+    """Initialize all models based on the tracker choice.
+    
+    Args:
+        use_tam (bool): If True, use EfficientTAM tracker. If False, use SAM tracker.
+    """
+    global predictor, detector, detector_person, yolo_detector
+    global pose_estimator_hand, pose_estimator_body, visualizer_hand, visualizer_body
+    global yolo_person, yolo_hand
+    
+    # Initialize detectors
+    detector = init_detector(DETECTOR_CONFIG, DETECTOR_WEIGHTS, device='cuda')
+    detector.cfg = adapt_mmdet_pipeline(detector.cfg)
 
-detector_person = init_detector(
-    'configs/mmdet/rtmdet_m_640-8xb32_coco-person.py',
-    'checkpoints/body/detection/rtmdet_m_8xb32-100e_coco-obj365-person-235e8209.pth',
-    device='cuda'
-)
-detector_person.cfg = adapt_mmdet_pipeline(detector_person.cfg)
+    detector_person = init_detector(DETECTOR_PERSON_CONFIG, DETECTOR_PERSON_WEIGHTS, device='cuda')
+    detector_person.cfg = adapt_mmdet_pipeline(detector_person.cfg)
 
-yolo_detector = YOLO_HANDS("configs/yolo_hands/cross-hands-yolov4-tiny.cfg", "checkpoints/hands/detection/cross-hands-yolov4-tiny.weights", ["hand"])
-yolo_detector.size = yolo_size
-yolo_detector.confidence = yolo_confidence
+    yolo_detector = YOLO_HANDS(YOLO_CONFIG, YOLO_WEIGHTS, ["hand"])
+    yolo_detector.size = YOLO_SIZE
+    yolo_detector.confidence = YOLO_CONFIDENCE
 
-checkpoint = "./checkpoints/sam/sam2.1_hiera_large.pt"
-model_cfg = "sam2.1_hiera_l.yaml"
-predictor = build_sam2_video_predictor(model_cfg, checkpoint, device='cuda')
+    # Initialize only the selected tracker
+    if use_tam:
+        from efficient_track_anything.build_efficienttam import build_efficienttam_video_predictor
+        predictor = build_efficienttam_video_predictor(
+            EFFICIENTTAM_CONFIG, 
+            EFFICIENTTAM_CHECKPOINT, 
+            device=device
+        )
+    else:
+        from sam2.build_sam import build_sam2_video_predictor
+        predictor = build_sam2_video_predictor(
+            SAM_CONFIG, 
+            SAM_CHECKPOINT, 
+            device=device
+        )
+    
+    # Initialize pose estimators
+    pose_estimator_hand = init_pose_estimator(
+        HAND_POSE_CONFIG,
+        HAND_POSE_WEIGHTS,
+        device='cuda',
+        cfg_options=dict(model=dict(test_cfg=dict(output_heatmaps=False))))
 
+    pose_estimator_body = init_pose_estimator(
+        BODY_POSE_CONFIG,
+        BODY_POSE_WEIGHTS,
+        device='cuda',
+        cfg_options=dict(model=dict(test_cfg=dict(output_heatmaps=False))))
+
+    # Configure hand pose visualizer
+    pose_estimator_hand.cfg.visualizer.radius = POSE_VIS_RADIUS
+    pose_estimator_hand.cfg.visualizer.alpha = POSE_VIS_ALPHA
+    pose_estimator_hand.cfg.visualizer.line_width = POSE_VIS_LINE_WIDTH
+    visualizer_hand = VISUALIZERS.build(pose_estimator_hand.cfg.visualizer)
+    visualizer_hand.set_dataset_meta(pose_estimator_hand.dataset_meta, skeleton_style='mmpose')
+
+    # Configure body pose visualizer
+    pose_estimator_body.cfg.visualizer.radius = POSE_VIS_RADIUS
+    pose_estimator_body.cfg.visualizer.alpha = POSE_VIS_ALPHA
+    pose_estimator_body.cfg.visualizer.line_width = POSE_VIS_LINE_WIDTH
+    visualizer_body = VISUALIZERS.build(pose_estimator_body.cfg.visualizer)
+    visualizer_body.set_dataset_meta(pose_estimator_body.dataset_meta, skeleton_style='mmpose')
+
+    # Initialize YOLO models
+    yolo_person = YOLO(YOLO_PERSON_WEIGHTS)
+    yolo_hand = YOLO(YOLO_HAND_WEIGHTS)
+    
+    # Configure YOLO hand model settings
+    yolo_hand.conf = 0.5  # NMS confidence threshold
+    yolo_hand.iou = 0.5   # NMS IoU threshold
+    
+    print(f"Models initialized with {'EfficientTAM' if use_tam else 'SAM'} tracker")
+    print("Pose estimation models initialized")
+    print("YOLO models initialized")
+
+def check_models_initialized():
+    """Check if models have been initialized."""
+    if predictor is None:
+        raise RuntimeError("Models not initialized. Call initialize_models(use_tam: bool) first.")
 
 '''      FUNCTION DEFINITIONS       '''
 
@@ -135,45 +269,85 @@ def show_box(box, ax):
     ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0, 0, 0, 0), lw=2))
 
 
-def add_obj_to_sam(video_dir, input_box, frame_idx, obj_id, show=True):
-
-    # scan all the JPEG frame names in this directory
+def add_object(video_dir, input_box=None, point_coords=None, point_labels=None, frame_idx=0, obj_id=0, show=True, inference_state=None, predictor_in=None):
+    """Add a new object to track using either box or points for both SAM and TAM.
+    
+    If both box and points are provided, box takes precedence.
+    If neither is provided, raises ValueError.
+    
+    Args:
+        video_dir: Directory containing video frames
+        input_box: Bounding box coordinates [x1,y1,x2,y2]
+        point_coords: Point coordinates for prompting
+        point_labels: Labels for points
+        frame_idx: Index of frame to add object
+        obj_id: ID to assign to new object
+        show: Whether to display visualization
+        inference_state: Optional existing inference state
+        predictor_in: Optional existing predictor
+    """
+    check_models_initialized()
+    
+    # Get frame names
     frame_names = [
         p for p in os.listdir(video_dir)
         if os.path.splitext(p)[-1] in [".jpg", ".jpeg", ".JPG", ".JPEG"]
     ]
     frame_names.sort(key=lambda p: int(os.path.splitext(p)[0]))
 
-    inference_state = predictor.init_state(video_path=video_dir)
-    predictor.reset_state(inference_state)
-    
+    # Use existing predictor/state if provided, otherwise initialize new ones
+    predictor_use = predictor_in if predictor_in is not None else predictor
+    if inference_state is None:
+        inference_state = predictor_use.init_state(video_path=video_dir)
+        predictor_use.reset_state(inference_state)
 
-    _, out_obj_ids, out_mask_logits = predictor.add_new_points_or_box(
-        inference_state=inference_state,
-        frame_idx=frame_idx,
-        obj_id=obj_id,
-        box=input_box,
-    )
+    # If box is provided, use it regardless of tracker type
+    if input_box is not None:
+        _, out_obj_ids, out_mask_logits = predictor_use.add_new_points_or_box(
+            inference_state=inference_state,
+            frame_idx=frame_idx,
+            obj_id=obj_id,
+            box=input_box
+        )
+        vis_type = 'box'
+    # Otherwise use points if provided
+    elif point_coords is not None and point_labels is not None:
+        _, out_obj_ids, out_mask_logits = predictor_use.add_new_points_or_box(
+            inference_state=inference_state,
+            frame_idx=frame_idx,
+            obj_id=obj_id,
+            points=point_coords,
+            labels=point_labels
+        )
+        vis_type = 'points'
+    else:
+        raise ValueError("Either bounding box or points (with labels) must be provided")
 
     if show:
-        # show the results on the current (interacted) frame
         plt.figure(figsize=(16, 9))
         plt.title(f"frame {frame_idx}")
         plt.imshow(Image.open(os.path.join(video_dir, frame_names[frame_idx])))
-        show_box(input_box, plt.gca())
+        if vis_type == 'points':
+            show_points(point_coords, point_labels, plt.gca())
+        else:
+            show_box(input_box, plt.gca())
         show_mask((out_mask_logits[0] > 0.0).cpu().numpy(), plt.gca(), obj_id=out_obj_ids[0])
 
-    return inference_state, predictor, frame_names
+    return inference_state, predictor_use, frame_names
 
 
-def track_with_sam(video_dir, inference_state, predictor, frame_names, show=True, prev_bboxes=None):
-
-    # run propagation throughout the video and collect the results in a dict
-    video_segments = {}  # video_segments contains the per-frame segmentation results
+def track_object(video_dir, inference_state, predictor, frame_names, show=True, prev_bboxes=None):
+    """Track object using the selected tracker (SAM or TAM)"""
+    check_models_initialized()
+    
+    # video_segments contains the per-frame segmentation results
+    video_segments = {}
     if prev_bboxes is None:
         bboxes = {}
     else:
         bboxes = prev_bboxes
+
+    # Forward propagation
     for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state):
         video_segments[out_frame_idx] = {
             out_obj_id: (out_mask_logits[i] > 0.0).cpu().numpy()
@@ -189,7 +363,8 @@ def track_with_sam(video_dir, inference_state, predictor, frame_names, show=True
                 created_boxes = mask_to_boxes((out_mask_logits[i] > 0.0).squeeze().cpu().numpy())
                 if len(created_boxes) > 0:
                     bboxes[out_frame_idx][out_obj_id] = created_boxes
-    
+
+    # Backward propagation if needed
     if len(video_segments) < len(frame_names):
         for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state, reverse=True):
             video_segments[out_frame_idx] = {
@@ -203,10 +378,12 @@ def track_with_sam(video_dir, inference_state, predictor, frame_names, show=True
                 }
             else:
                 for i, out_obj_id in enumerate(out_obj_ids):
-                    bboxes[out_frame_idx][out_obj_id] = mask_to_boxes((out_mask_logits[i] > 0.0).squeeze().cpu().numpy())
+                    created_boxes = mask_to_boxes((out_mask_logits[i] > 0.0).squeeze().cpu().numpy())
+                    if len(created_boxes) > 0:
+                        bboxes[out_frame_idx][out_obj_id] = created_boxes
 
     if show:
-        # render the segmentation results every few frames
+        # Visualization code
         vis_frame_stride = 30
         plt.close("all")
         for out_frame_idx in range(0, len(frame_names), vis_frame_stride):
@@ -219,7 +396,23 @@ def track_with_sam(video_dir, inference_state, predictor, frame_names, show=True
 
     return video_segments, bboxes
 
+
 def detect_bbox_yolo(file: str, exclude_box = None, prev_bboxes=None, write_folder=False, show=True):
+    """Detect hands in an image or video using YOLO model.
+
+    Args:
+        file (str): Path to image or video file
+        exclude_box (list, optional): Boxes to exclude from detection. Defaults to None.
+        prev_bboxes (dict, optional): Previous bounding boxes. Defaults to None.
+        write_folder (bool, optional): Whether to save frames. Defaults to False.
+        show (bool, optional): Whether to show visualization. Defaults to True.
+
+    Returns:
+        For images: np.ndarray of bounding boxes
+        For videos: tuple of (np.ndarray of boxes, frame index)
+    """
+    check_models_initialized()
+    
     if filetype.is_image(file):
         print(file)
         mat = cv2.imread(file)
@@ -270,11 +463,14 @@ def detect_bbox_yolo(file: str, exclude_box = None, prev_bboxes=None, write_fold
         parentdir = os.path.abspath(os.path.join(file, os.pardir))
         base_name = os.path.splitext(os.path.basename(file))[0]
         try:
-            os.makedirs(os.path.join(parentdir, base_name))
+            if write_folder:
+                os.makedirs(os.path.join(parentdir, base_name))
         except:
             write_folder = False
 
         while cap.isOpened() and (not hands_found or write_folder):
+
+            print(frame_idx, end='\r')
             success, frame = cap.read()
 
             if not success:
@@ -342,6 +538,8 @@ def detect_bbox_yolo(file: str, exclude_box = None, prev_bboxes=None, write_fold
                         cv2.waitKey(0)
 
             frame_idx += 1
+        
+        print("End of video")
             
             
         cap.release()
@@ -349,6 +547,18 @@ def detect_bbox_yolo(file: str, exclude_box = None, prev_bboxes=None, write_fold
         return np.array(output), out_frame_idx
 
 def detect_bbox(file, show=False):    
+    """Detect hands using Cascade R-CNN model.
+
+    Args:
+        file (str): Path to image or video file
+        show (bool, optional): Whether to show visualization. Defaults to False.
+
+    Returns:
+        For images: np.ndarray of bounding boxes 
+        For videos: tuple of (bounding boxes, frame index)
+    """
+    check_models_initialized()
+    
     if filetype.is_image(file):
         print(file)
         det_result = inference_detector(detector, file)
@@ -356,8 +566,8 @@ def detect_bbox(file, show=False):
         bboxes = np.concatenate(
             (pred_instance.bboxes, pred_instance.scores[:, None]), axis=1)
         bboxes = bboxes[np.logical_and(pred_instance.labels == 0,
-                                        pred_instance.scores > bbox_thr)]
-        bboxes = bboxes[nms(bboxes, nms_thr), :4]
+                                        pred_instance.scores > BBOX_THRESHOLD)]
+        bboxes = bboxes[nms(bboxes, NMS_THRESHOLD), :4]
 
         if show:
             mat = cv2.imread(file)
@@ -385,6 +595,8 @@ def detect_bbox(file, show=False):
         bboxes = []
 
         while cap.isOpened() and (not hands_found):
+
+            print(frame_idx, end='\r')
             success, frame = cap.read()
 
             if not success:
@@ -396,8 +608,8 @@ def detect_bbox(file, show=False):
             bboxes = np.concatenate(
                 (pred_instance.bboxes, pred_instance.scores[:, None]), axis=1)
             bboxes = bboxes[np.logical_and(pred_instance.labels == 0,
-                                            pred_instance.scores > bbox_thr)]
-            bboxes = bboxes[nms(bboxes, nms_thr), :4]
+                                            pred_instance.scores > BBOX_THRESHOLD)]
+            bboxes = bboxes[nms(bboxes, NMS_THRESHOLD), :4]
 
 
             if len(bboxes) > 0:
@@ -418,9 +630,8 @@ def detect_bbox(file, show=False):
 
             frame_idx += 1
 
-            
                 
-            
+        print("End of video")
             
         cap.release()
 
@@ -428,6 +639,17 @@ def detect_bbox(file, show=False):
     
 
 def detect_body(file):
+    """Detect person bounding boxes using RTMDet model.
+
+    Args:
+        file (str): Path to image or video file
+
+    Returns:
+        For images: np.ndarray of bounding boxes
+        For videos: list of bounding boxes per frame
+    """
+    check_models_initialized()
+    
     if filetype.is_image(file):
         print(file)
         det_result = inference_detector(detector_person, file)
@@ -435,8 +657,8 @@ def detect_body(file):
         bboxes = np.concatenate(
             (pred_instance.bboxes, pred_instance.scores[:, None]), axis=1)
         bboxes = bboxes[np.logical_and(pred_instance.labels == 0,
-                                        pred_instance.scores > bbox_thr)]
-        bboxes = bboxes[nms(bboxes, nms_thr), :4]
+                                        pred_instance.scores > BBOX_THRESHOLD)]
+        bboxes = bboxes[nms(bboxes, NMS_THRESHOLD), :4]
 
         return bboxes
     elif filetype.is_video(file):
@@ -460,8 +682,8 @@ def detect_body(file):
             bboxes = np.concatenate(
                 (pred_instance.bboxes, pred_instance.scores[:, None]), axis=1)
             bboxes = bboxes[np.logical_and(pred_instance.labels == 0,
-                                            pred_instance.scores > body_bbox_thr)]
-            bboxes = bboxes[nms(bboxes, nms_thr), :4]
+                                            pred_instance.scores > BODY_BBOX_THRESHOLD)]
+            bboxes = bboxes[nms(bboxes, NMS_THRESHOLD), :4]
 
             if len(bboxes) > 0:
                 out_bboxes.append(bboxes)
@@ -477,6 +699,14 @@ def detect_body(file):
 
 
 def render_bbox_video(output_file, video_dir, bboxes, frame_names):
+    """Render video with bounding box visualizations.
+
+    Args:
+        output_file (str): Output directory path
+        video_dir (str): Directory containing video frames
+        bboxes (dict): Bounding boxes per frame
+        frame_names (list): List of frame filenames
+    """
     # render the segmentation results every few frames
     plt.close("all")
 
@@ -512,3 +742,192 @@ def render_bbox_video(output_file, video_dir, bboxes, frame_names):
 
     cv2.destroyAllWindows()
     video.release()
+
+'''      POSE ESTIMATION FUNCTIONS       '''
+
+def estimate_pose(img, bbox, pose_type='hand', show=False, write_img=None):
+    """Estimate pose for a given bbox in an image.
+    
+    Args:
+        img: Input image (path or numpy array)
+        bbox: Bounding box coordinates [x1,y1,x2,y2]
+        pose_type: Type of pose to estimate ('hand' or 'body')
+        show: Whether to show visualization
+        write_img: Optional image to draw visualization on
+    
+    Returns:
+        Predicted pose instances
+    """
+    check_models_initialized()
+
+    # Select appropriate models
+    if pose_type == 'hand':
+        pose_estimator = pose_estimator_hand
+        visualizer = visualizer_hand
+    else:
+        pose_estimator = pose_estimator_body 
+        visualizer = visualizer_body
+
+    # Ensure bbox is in correct format (N,4)
+    if isinstance(bbox, np.ndarray):
+        bbox = bbox.reshape(1,-1) if bbox.size == 4 else bbox
+
+    # Predict keypoints
+    pose_results = inference_topdown(pose_estimator, img, bbox)
+    data_samples = merge_data_samples(pose_results)
+
+    # Visualize if requested
+    if visualizer is not None and show:
+        if write_img is None:
+            write_img = img
+        if isinstance(write_img, str):
+            write_img = mmcv.imread(write_img, channel_order='rgb')
+        elif isinstance(write_img, np.ndarray):
+            write_img = mmcv.bgr2rgb(write_img)
+
+        visualizer.add_datasample(
+            'result',
+            write_img,
+            data_sample=data_samples,
+            draw_gt=False,
+            draw_heatmap=False,
+            draw_bbox=True,
+            show_kpt_idx=False,
+            skeleton_style='mmpose',
+            show=show,
+            wait_time=1,
+            kpt_thr=POSE_KPT_THRESHOLD)
+
+    return data_samples.get('pred_instances', None)
+
+'''      NEW ROHAN DETECTION FUNCTIONS       '''
+
+def crop_img(img, box):
+    """Crop image based on bounding box"""
+    x1, y1, x2, y2 = map(int, box)
+    return img[y1:y2, x1:x2]
+
+def detect_hands_in_frame(frame):
+    """Detect hands in a single frame using two-stage YOLO detection.
+    
+    First detects person, then looks for hands within person bbox.
+    
+    Args:
+        frame: Input frame/image
+        
+    Returns:
+        boxes: Array of hand bounding boxes
+        confidence: Array of confidence scores
+    """
+    check_models_initialized()
+    
+    # Process frame with person detector
+    results = yolo_person(frame, classes=0)
+    
+    boxes = []
+    confidence = []
+    
+    # Process each person detection
+    for r in results:
+        boxes_tensor = r.boxes.xyxy.cpu()
+        confs = r.boxes.conf.cpu()
+        
+        for box1, conf in zip(boxes_tensor, confs):
+            # Crop person region and detect hands
+            cropped = crop_img(frame, box1)
+            results_hands = yolo_hand(cropped)
+            
+            for r in results_hands:
+                boxes_tensor = r.boxes.xyxy.cpu()
+                confs = r.boxes.conf.cpu()
+                
+                for box2, conf in zip(boxes_tensor, confs):
+                    if conf > yolo_hand.conf:
+                        # Adjust hand bbox coordinates relative to full frame
+                        adjusted_box = np.add(np.array(box2).reshape(2, 2), box1[:2])
+                        boxes.append(adjusted_box.flatten())
+                        confidence.append(conf)
+                        
+    return np.array(boxes) if boxes else np.array([]), np.array(confidence) if confidence else np.array([])
+
+def process_video(input_file, write_folder=True, show=True):
+    """Process video file for hand detection.
+    
+    Args:
+        input_file: Path to video file
+        write_folder: Whether to save extracted frames
+        show: Whether to show visualization
+    
+    Returns:
+        List of tuples (boxes, frame_idx) containing detections
+    """
+    check_models_initialized()
+    
+    cap = cv2.VideoCapture(input_file)
+    if not cap.isOpened():
+        raise FileNotFoundError(f"Cannot open video file: {input_file}")
+    
+    frame_idx = 0
+    output_boxes = []
+    out_frame_idx = None
+    
+    # Setup output directory for frames
+    if write_folder:
+        parentdir = os.path.dirname(input_file)
+        base_name = os.path.splitext(os.path.basename(input_file))[0]
+        frames_dir = os.path.join(parentdir, base_name)
+        os.makedirs(frames_dir, exist_ok=True)
+    
+    success = True
+    while cap.isOpened() and success:   
+        success, frame = cap.read()
+        if not success:
+            break
+            
+        # Save frame if requested
+        if write_folder:
+            output_file = os.path.join(frames_dir, f"{frame_idx:05d}.jpg")
+            cv2.imwrite(output_file, frame)
+            
+        # Detect hands
+        boxes, confidence = detect_hands_in_frame(frame)
+        
+        if len(boxes) > 0:
+            output_boxes.append((boxes, frame_idx))
+            
+        if show:
+            # Visualize detections
+            for box, conf in zip(boxes, confidence):
+                x1, y1, x2, y2 = map(int, box)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 255), 2)
+                cv2.putText(frame, f"Hand ({conf:.1%})", (x1 - 30, y1 - 30), 
+                          cv2.FONT_HERSHEY_PLAIN, 2, (255, 0, 255), 2)
+            
+            cv2.namedWindow('Detections', cv2.WINDOW_NORMAL)
+            cv2.resizeWindow('Detections', 1920, 1080)
+            cv2.imshow('Detections', frame)
+            if cv2.waitKey(1) == 113:  # 'q' key
+                success = False
+                
+        frame_idx += 1
+        print(f"Processing frame {frame_idx}", end='\r')
+    
+    cap.release()
+    if show:
+        cv2.destroyAllWindows()
+        
+    return output_boxes
+
+def save_detections(boxes, output_file):
+    """Save detection results to file.
+    
+    Args:
+        boxes: List of (boxes, frame_idx) tuples
+        output_file: Path to output file
+    """
+    with open(output_file, 'w+') as f:
+        for boxes, frame_idx in boxes:
+            f.write(f"{frame_idx} ")
+            for box in boxes:
+                f.write(f"{box[0]} {box[1]} {box[2]} {box[3]} ")
+            f.write("\n")

@@ -30,6 +30,13 @@ The code was developed on both Windows and MacOS with M1 chip.
 
 ### Prerequisites
 
+#### pytorch
+Follow the instructions on the official [pytorch page](https://pytorch.org/). 
+(This code was developed using pytorch 2.5.1)
+
+Make sure to have CUDA drivers installed if NVIDIA GPUs are available.
+You find more information on the [official website](https://developer.nvidia.com/cuda-downloads).
+
 #### Ninja
 Install ninja using the instructions in the [official website](https://ninja-build.org/).
 
@@ -37,9 +44,6 @@ Install ninja using the instructions in the [official website](https://ninja-bui
 Follow the installation instructions on the [mmpose website](https://mmpose.readthedocs.io/en/latest/installation.html).
 (The code was developed using mmpose v1.3.0)
 
-#### pytorch
-Follow the instructions on the official [pytorch page](https://pytorch.org/). 
-(This code was developed using pytorch 2.5.1)
+#### SAM2
 
-Make sure to have CUDA drivers installed if NVIDIA GPUs are available.
-You find more information on the [official website](https://developer.nvidia.com/cuda-downloads).
+Install SAMv2 following the official instructions on the [sam2 github page](https://github.com/facebookresearch/sam2?tab=readme-ov-file#installation)

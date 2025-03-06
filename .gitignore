@@ -1,6 +1,8 @@
 vis_dir/
 pose_outputs/
 inputs/
+outputs/
+pose_outputs/
 videos/
 output_3d/
 intrinsics/
