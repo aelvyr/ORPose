@@ -10,5 +10,6 @@ extrinsics/
 bboxes/
 checkpoints/
 configs/
+camera_poses/
 
 __pycache__/

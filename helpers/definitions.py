@@ -1,12 +1,7 @@
-cam_names = [
-    "gopro1",
-    "gopro2",
-    #"gopro3",
-    "gopro5",
-    "gopro9",
-    #"gopro10",
-    "zoom"
-]
+cam_names = []
+
+for i in range(1, 13):
+    cam_names.append('gopro' + str(i))
 
 num_cameras = len(cam_names)
 num_keypoints = 26
@@ -240,3 +235,27 @@ FIXED_LENGTHS = {
     (12,13):0.5,
     (0, 1):0.22
 }
+
+CANONICAL_HAND_POSE_3D = [
+    [0.0, 0.0, 0.0],       # palm center (0)
+    [0.031, 0.022, 0.0],       # thumb base (1)
+    [0.051, 0.041, 0.01],     # thumb mid (2)
+    [0.074, 0.077, 0.015],      # thumb tip (3)
+    [0.088, 0.101, 0.02],     # thumb end (4)
+    [0.025, 0.098, 0.0],     # index base (5)
+    [0.0375, 0.14, 0.0],    # index mid (6)
+    [0.043, 0.165, 0.0],    # index tip (7)
+    [0.047, 0.185, 0.0],    # index end (8)
+    [0.0, 0.098, 0.0],     # middle base (9)
+    [0.006, 0.149, 0.0],    # middle mid (10)
+    [0.008, 0.178, 0.0],    # middle tip (11)
+    [0.009, 0.203, 0.0],    # middle end (12)
+    [-0.021, 0.093, 0.0],      # ring base (13)
+    [-0.029, 0.146, 0.0],     # ring mid (14)
+    [-0.034, 0.175, 0.0],     # ring tip (15)
+    [-0.036, 0.198, 0.0],     # ring end (16)
+    [-0.041, 0.083, 0.0],      # pinky base (17)
+    [-0.06, 0.122, 0.0],     # pinky mid (18)
+    [-0.0685, 0.141, 0.0],     # pinky tip (19)
+    [-0.075, 0.159, 0.0]      # pinky end (20)
+]

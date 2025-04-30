@@ -60,10 +60,10 @@ YOLO_HAND_WEIGHTS = 'checkpoints/yolo/rohan_pretrained.pt'
 
 # Pose estimation model paths
 HAND_POSE_CONFIG = 'configs/hand_2d_keypoint/rtmpose/hand5/rtmpose-m_8xb256-210e_hand5-256x256.py'
-HAND_POSE_WEIGHTS = 'checkpoints/hands/rtmpose-m_simcc-hand5_pt-aic-coco_210e-256x256-74fb594_20230320.pth'
+HAND_POSE_WEIGHTS = 'checkpoints/hands/pose/rtmpose-m_simcc-hand5_pt-aic-coco_210e-256x256-74fb594_20230320.pth'
 
 BODY_POSE_CONFIG = 'configs/body_2d_keypoint/rtmpose/body8/rtmpose-x_8xb256-700e_body8-halpe26-384x288.py'
-BODY_POSE_WEIGHTS = 'checkpoints/body/rtmpose-x_simcc-body7_pt-body7-halpe26_700e-384x288-7fb6e239_20230606.pth'
+BODY_POSE_WEIGHTS = 'checkpoints/body/pose/rtmpose-x_simcc-body7_pt-body7-halpe26_700e-384x288-7fb6e239_20230606.pth'
 
 # Global variables for pose estimators
 pose_estimator_hand = None
@@ -80,6 +80,7 @@ POSE_VIS_RADIUS = 3
 POSE_VIS_ALPHA = 0.8
 POSE_VIS_LINE_WIDTH = 2
 POSE_KPT_THRESHOLD = 0.3
+IS_HAND_THRESHOLD = 0.2
 
 # Device and compilation configuration
 if torch.cuda.is_available():
@@ -96,10 +97,7 @@ print(f"Torch compile enabled: {enable_torch_compile}")
 
 # GPU optimization settings
 if device.type == "cuda":
-    # Use bfloat16 precision where supported
-    if torch.cuda.is_bf16_supported():
-        torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
-    
+
     # Enable TF32 on Ampere GPUs
     if torch.cuda.get_device_properties(0).major >= 8:
         torch.backends.cuda.matmul.allow_tf32 = True
@@ -191,24 +189,43 @@ def check_models_initialized():
 
 '''      FUNCTION DEFINITIONS       '''
 
-def mask_to_boxes(mask, min_box_thr=5):
-    """ Convert a boolean (Height x Width) mask into a (N x 4) array of NON-OVERLAPPING bounding boxes
-    surrounding "islands of truth" in the mask.  Boxes indicate the (Left, Top, Right, Bottom) bounds
-    of each island, with Right and Bottom being NON-INCLUSIVE (ie they point to the indices AFTER the island).
-
-    This algorithm (Downright Boxing) does not necessarily put separate connected components into
-    separate boxes.
-
-    You can "cut out" the island-masks with
-        boxes = mask_to_boxes(mask)
-        island_masks = [mask[t:b, l:r] for l, t, r, b in boxes]
+def mask_to_boxes(mask, min_box_thr=5, whole_mask=False):
+    """Convert a boolean mask into bounding box(es).
+    
+    Args:
+        mask: Boolean mask array
+        min_box_thr: Minimum box size threshold
+        whole_mask: If True, return single bbox around entire mask.
+                   If False, return boxes for each disconnected component.
+    
+    Returns:
+        np.ndarray of bounding boxes
     """
-    max_ix = max(s+1 for s in mask.shape)   # Use this to represent background
-    # These arrays will be used to carry the "box start" indices down and to the right.
+    if whole_mask:
+        # Find coordinates of True values
+        y_indices, x_indices = np.where(mask)
+        if len(y_indices) == 0 or len(x_indices) == 0:
+            return np.array([])
+            
+        # Get min/max coordinates
+        x_min, x_max = np.min(x_indices), np.max(x_indices)
+        y_min, y_max = np.min(y_indices), np.max(y_indices)
+        
+        # Create single bounding box
+        bbox = np.array([[x_min, y_min, x_max + 1, y_max + 1]])
+        
+        # Apply minimum size threshold
+        if ((bbox[0,2] - bbox[0,0]) > min_box_thr and 
+            (bbox[0,3] - bbox[0,1]) > min_box_thr):
+            return bbox
+        return np.array([])
+        
+    # Original disconnected components logic
+    max_ix = max(s+1 for s in mask.shape)
     x_ixs = np.full(mask.shape, fill_value=max_ix)
     y_ixs = np.full(mask.shape, fill_value=max_ix)
 
-    # Propagate the earliest x-index in each segment to the bottom-right corner of the segment
+    # These arrays will be used to carry the "box start" indices down and to the right.
     for i in range(mask.shape[0]):
         x_fill_ix = max_ix
         for j in range(mask.shape[1]):
@@ -269,6 +286,49 @@ def show_box(box, ax):
     ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0, 0, 0, 0), lw=2))
 
 
+def get_autocast_settings(model_name):
+    """Define autocast settings per model"""
+    settings = {
+        'sam': {'enabled': True, 'dtype': torch.bfloat16},
+        'tam': {'enabled': True, 'dtype': torch.bfloat16},
+        'yolo': {'enabled': False, 'dtype': None},  # YOLO might not support bf16
+        'pose': {'enabled': True, 'dtype': torch.float16}  # Pose estimation often works better with fp16
+    }
+    return settings.get(model_name, {'enabled': False, 'dtype': None})
+
+# First, modify the decorator function to work with or without arguments
+def with_autocast(arg):
+    """Decorator to handle autocast context
+    Can be used as @with_autocast or @with_autocast('model_name')
+    """
+    if callable(arg):  # Used as @with_autocast without parameters
+        func = arg
+        model_name = 'default'
+        def wrapper(*args, **kwargs):
+            settings = get_autocast_settings(model_name)
+            if device.type == "cuda" and settings['enabled']:
+                if settings['dtype'] == torch.bfloat16 and not torch.cuda.is_bf16_supported():
+                    settings['dtype'] = torch.float16
+                with torch.autocast("cuda", dtype=settings['dtype']):
+                    return func(*args, **kwargs)
+            return func(*args, **kwargs)
+        return wrapper
+    else:  # Used as @with_autocast('model_name')
+        model_name = arg
+        def decorator(func):
+            def wrapper(*args, **kwargs):
+                settings = get_autocast_settings(model_name)
+                if device.type == "cuda" and settings['enabled']:
+                    if settings['dtype'] == torch.bfloat16 and not torch.cuda.is_bf16_supported():
+                        settings['dtype'] = torch.float16
+                    with torch.autocast("cuda", dtype=settings['dtype']):
+                        return func(*args, **kwargs)
+                return func(*args, **kwargs)
+            return wrapper
+        return decorator
+
+# Then use it in either way:
+@with_autocast('tam')
 def add_object(video_dir, input_box=None, point_coords=None, point_labels=None, frame_idx=0, obj_id=0, show=True, inference_state=None, predictor_in=None):
     """Add a new object to track using either box or points for both SAM and TAM.
     
@@ -322,7 +382,7 @@ def add_object(video_dir, input_box=None, point_coords=None, point_labels=None, 
         vis_type = 'points'
     else:
         raise ValueError("Either bounding box or points (with labels) must be provided")
-
+    
     if show:
         plt.figure(figsize=(16, 9))
         plt.title(f"frame {frame_idx}")
@@ -335,12 +395,22 @@ def add_object(video_dir, input_box=None, point_coords=None, point_labels=None, 
 
     return inference_state, predictor_use, frame_names
 
-
-def track_object(video_dir, inference_state, predictor, frame_names, show=True, prev_bboxes=None):
-    """Track object using the selected tracker (SAM or TAM)"""
+# Then use it in either way:
+@with_autocast('tam')
+def track_object(video_dir, inference_state, predictor, frame_names, show=True, prev_bboxes=None, whole_mask=False):
+    """Track object using the selected tracker (SAM or TAM)
+    
+    Args:
+        video_dir: Directory containing video frames
+        inference_state: Tracker inference state
+        predictor: Tracker predictor instance
+        frame_names: List of frame filenames
+        show: Whether to show visualization
+        prev_bboxes: Optional previous bounding boxes
+        whole_mask: If True, create single bbox around entire mask
+    """
     check_models_initialized()
     
-    # video_segments contains the per-frame segmentation results
     video_segments = {}
     if prev_bboxes is None:
         bboxes = {}
@@ -355,12 +425,14 @@ def track_object(video_dir, inference_state, predictor, frame_names, show=True, 
         }
         if prev_bboxes is None:
             bboxes[out_frame_idx] = {
-                out_obj_id: mask_to_boxes((out_mask_logits[i] > 0.0).squeeze().cpu().numpy())
+                out_obj_id: mask_to_boxes((out_mask_logits[i] > 0.0).squeeze().cpu().numpy(), 
+                                        whole_mask=whole_mask)
                 for i, out_obj_id in enumerate(out_obj_ids)
             }
         else:
             for i, out_obj_id in enumerate(out_obj_ids):
-                created_boxes = mask_to_boxes((out_mask_logits[i] > 0.0).squeeze().cpu().numpy())
+                created_boxes = mask_to_boxes((out_mask_logits[i] > 0.0).squeeze().cpu().numpy(), 
+                                        whole_mask=whole_mask)
                 if len(created_boxes) > 0:
                     bboxes[out_frame_idx][out_obj_id] = created_boxes
 
@@ -373,12 +445,14 @@ def track_object(video_dir, inference_state, predictor, frame_names, show=True, 
             }
             if prev_bboxes is None:
                 bboxes[out_frame_idx] = {
-                    out_obj_id: mask_to_boxes((out_mask_logits[i] > 0.0).squeeze().cpu().numpy())
+                    out_obj_id: mask_to_boxes((out_mask_logits[i] > 0.0).squeeze().cpu().numpy(), 
+                                            whole_mask=whole_mask)
                     for i, out_obj_id in enumerate(out_obj_ids)
                 }
             else:
                 for i, out_obj_id in enumerate(out_obj_ids):
-                    created_boxes = mask_to_boxes((out_mask_logits[i] > 0.0).squeeze().cpu().numpy())
+                    created_boxes = mask_to_boxes((out_mask_logits[i] > 0.0).squeeze().cpu().numpy(), 
+                                            whole_mask=whole_mask)
                     if len(created_boxes) > 0:
                         bboxes[out_frame_idx][out_obj_id] = created_boxes
 
@@ -395,6 +469,8 @@ def track_object(video_dir, inference_state, predictor, frame_names, show=True, 
         plt.close("all")
 
     return video_segments, bboxes
+
+    
 
 
 def detect_bbox_yolo(file: str, exclude_box = None, prev_bboxes=None, write_folder=False, show=True):
@@ -745,12 +821,13 @@ def render_bbox_video(output_file, video_dir, bboxes, frame_names):
 
 '''      POSE ESTIMATION FUNCTIONS       '''
 
+@with_autocast('pose')
 def estimate_pose(img, bbox, pose_type='hand', show=False, write_img=None):
     """Estimate pose for a given bbox in an image.
     
     Args:
         img: Input image (path or numpy array)
-        bbox: Bounding box coordinates [x1,y1,x2,y2]
+        bbox: Bounding box coordinates [[x1,y1,x2,y2]]
         pose_type: Type of pose to estimate ('hand' or 'body')
         show: Whether to show visualization
         write_img: Optional image to draw visualization on
@@ -760,45 +837,69 @@ def estimate_pose(img, bbox, pose_type='hand', show=False, write_img=None):
     """
     check_models_initialized()
 
-    # Select appropriate models
-    if pose_type == 'hand':
-        pose_estimator = pose_estimator_hand
-        visualizer = visualizer_hand
-    else:
-        pose_estimator = pose_estimator_body 
-        visualizer = visualizer_body
-
     # Ensure bbox is in correct format (N,4)
     if isinstance(bbox, np.ndarray):
         bbox = bbox.reshape(1,-1) if bbox.size == 4 else bbox
 
-    # Predict keypoints
-    pose_results = inference_topdown(pose_estimator, img, bbox)
-    data_samples = merge_data_samples(pose_results)
+    # Select appropriate models
+    if pose_type == 'hand':
+        # Predict keypoints
+        pose_results = inference_topdown(pose_estimator_hand, img, bbox)
+        data_samples = merge_data_samples(pose_results)
 
-    # Visualize if requested
-    if visualizer is not None and show:
-        if write_img is None:
-            write_img = img
-        if isinstance(write_img, str):
-            write_img = mmcv.imread(write_img, channel_order='rgb')
-        elif isinstance(write_img, np.ndarray):
-            write_img = mmcv.bgr2rgb(write_img)
+        # Visualize if requested
+        if visualizer_hand is not None and show:
+            visualizer_hand.set_dataset_meta(pose_estimator_hand.dataset_meta, skeleton_style='mmpose')
+            if write_img is None:
+                write_img = img
+            if isinstance(write_img, str):
+                write_img = mmcv.imread(write_img, channel_order='rgb')
+            elif isinstance(write_img, np.ndarray):
+                write_img = mmcv.bgr2rgb(write_img)
 
-        visualizer.add_datasample(
-            'result',
-            write_img,
-            data_sample=data_samples,
-            draw_gt=False,
-            draw_heatmap=False,
-            draw_bbox=True,
-            show_kpt_idx=False,
-            skeleton_style='mmpose',
-            show=show,
-            wait_time=1,
-            kpt_thr=POSE_KPT_THRESHOLD)
+            visualizer_hand.add_datasample(
+                'result',
+                write_img,
+                data_sample=data_samples,
+                draw_gt=False,
+                draw_heatmap=False,
+                draw_bbox=True,
+                show_kpt_idx=False,
+                skeleton_style='mmpose',
+                show=show,
+                wait_time=0.1,
+                kpt_thr=POSE_KPT_THRESHOLD)
 
-    return data_samples.get('pred_instances', None)
+        return data_samples.get('pred_instances', None)
+
+    else:
+        # Predict keypoints
+        pose_results = inference_topdown(pose_estimator_body, img, bbox)
+        data_samples = merge_data_samples(pose_results)
+
+        # Visualize if requested
+        if visualizer_body is not None and show:
+            if write_img is None:
+                write_img = img
+            if isinstance(write_img, str):
+                write_img = mmcv.imread(write_img, channel_order='rgb')
+            elif isinstance(write_img, np.ndarray):
+                write_img = mmcv.bgr2rgb(write_img)
+
+            visualizer_body.add_datasample(
+                'result',
+                write_img,
+                data_sample=data_samples,
+                draw_gt=False,
+                draw_heatmap=False,
+                draw_bbox=True,
+                show_kpt_idx=False,
+                skeleton_style='mmpose',
+                show=show,
+                wait_time=0.1,
+                kpt_thr=POSE_KPT_THRESHOLD)
+
+        return data_samples.get('pred_instances', None)
 
 '''      NEW ROHAN DETECTION FUNCTIONS       '''
 
@@ -807,6 +908,7 @@ def crop_img(img, box):
     x1, y1, x2, y2 = map(int, box)
     return img[y1:y2, x1:x2]
 
+@with_autocast('yolo')
 def detect_hands_in_frame(frame):
     """Detect hands in a single frame using two-stage YOLO detection.
     
