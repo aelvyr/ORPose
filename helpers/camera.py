@@ -159,3 +159,44 @@ def load_camera_params(intr_path : str, extr_path : str, convert=True, suffix: s
             camera_matrices.append(camera_matrix)
 
     return camera_intrinsics, camera_extrinsics, distortion_coeffs, camera_matrices
+
+def project_points_safe(points_3d, intrinsic_matrix, rot, t, distortion):
+    """
+    Projects 3D points into 2D using camera intrinsics, extrinsics, and distortion.
+    This version includes safety checks for NaN values and other errors.
+    
+    Args:
+        points_3d: The 3D points as an np.array of shape (N, 3).
+        intrinsic_matrix: Camera intrinsic matrix (3x3).
+        rot: Rotation matrix as a 3x3 matrix.
+        t: Translation vector as a 3x1 vector.
+        distortion: Distortion coefficients.
+    Returns:
+        2D point coordinates as an np.array of shape (N, 2).
+    """
+    # Check for NaN values in the input
+    if np.isnan(points_3d).any():
+        print("Warning: NaN values detected in 3D points during projection")
+        # Replace NaN with zeros to avoid crashes
+        points_3d = np.nan_to_num(points_3d, nan=0.0)
+    
+    try:
+        (rvec, jac) = cv2.Rodrigues(rot)
+        
+        # Map the 3D points to 2D points
+        points_2d, _ = cv2.projectPoints(points_3d,
+                                        rvec, t, 
+                                        intrinsic_matrix, 
+                                        distortion)
+        
+        # Check for NaN or infinity in the result
+        if np.isnan(points_2d).any() or np.isinf(points_2d).any():
+            print("Warning: NaN or Inf values detected in projected 2D points")
+            points_2d = np.nan_to_num(points_2d, nan=0.0, posinf=1000.0, neginf=-1000.0)
+        
+        return points_2d.reshape(-1, 2)
+    
+    except Exception as e:
+        print(f"Error in point projection: {str(e)}")
+        # Return zero coordinates as fallback
+        return np.zeros((len(points_3d), 2))

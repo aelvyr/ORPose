@@ -65,11 +65,15 @@ HAND_POSE_WEIGHTS = 'checkpoints/hands/pose/rtmpose-m_simcc-hand5_pt-aic-coco_21
 BODY_POSE_CONFIG = 'configs/body_2d_keypoint/rtmpose/body8/rtmpose-x_8xb256-700e_body8-halpe26-384x288.py'
 BODY_POSE_WEIGHTS = 'checkpoints/body/pose/rtmpose-x_simcc-body7_pt-body7-halpe26_700e-384x288-7fb6e239_20230606.pth'
 
+WHOLEBODY_POSE_CONFIG = 'configs/wholebody_2d_keypoint/rtmpose/coco-wholebody/rtmpose-l_8xb32-270e_coco-wholebody-384x288.py'
+WHOLEBODY_POSE_WEIGHTS = 'checkpoints/wholebody/rtmpose-l_simcc-coco-wholebody_pt-aic-coco_270e-384x288-eaeb96c8_20230125.pth'
 # Global variables for pose estimators
 pose_estimator_hand = None
 pose_estimator_body = None
 visualizer_hand = None 
 visualizer_body = None
+pose_estimator_wholebody = None
+visualizer_wholebody = None
 
 # Additional global variables
 yolo_person = None
@@ -106,7 +110,7 @@ if device.type == "cuda":
 
 '''      MODEL INSTANTIATIONS       '''
 
-def initialize_models(use_tam: bool):
+def initialize_models(use_tam: bool, use_wholebody:bool=False):
     """Initialize all models based on the tracker choice.
     
     Args:
@@ -115,7 +119,8 @@ def initialize_models(use_tam: bool):
     global predictor, detector, detector_person, yolo_detector
     global pose_estimator_hand, pose_estimator_body, visualizer_hand, visualizer_body
     global yolo_person, yolo_hand
-    
+    if use_wholebody:
+        global pose_estimator_wholebody, visualizer_wholebody    
     # Initialize detectors
     detector = init_detector(DETECTOR_CONFIG, DETECTOR_WEIGHTS, device='cuda')
     detector.cfg = adapt_mmdet_pipeline(detector.cfg)
@@ -156,6 +161,13 @@ def initialize_models(use_tam: bool):
         device='cuda',
         cfg_options=dict(model=dict(test_cfg=dict(output_heatmaps=False))))
 
+    if use_wholebody:   
+        pose_estimator_wholebody = init_pose_estimator(
+            WHOLEBODY_POSE_CONFIG,
+            WHOLEBODY_POSE_WEIGHTS,
+            device='cuda',
+            cfg_options=dict(model=dict(test_cfg=dict(output_heatmaps=False))))
+
     # Configure hand pose visualizer
     pose_estimator_hand.cfg.visualizer.radius = POSE_VIS_RADIUS
     pose_estimator_hand.cfg.visualizer.alpha = POSE_VIS_ALPHA
@@ -169,6 +181,14 @@ def initialize_models(use_tam: bool):
     pose_estimator_body.cfg.visualizer.line_width = POSE_VIS_LINE_WIDTH
     visualizer_body = VISUALIZERS.build(pose_estimator_body.cfg.visualizer)
     visualizer_body.set_dataset_meta(pose_estimator_body.dataset_meta, skeleton_style='mmpose')
+    
+    # Configure SAPIENS pose visualizer
+    if use_wholebody:
+        pose_estimator_wholebody.cfg.visualizer.radius = POSE_VIS_RADIUS
+        pose_estimator_wholebody.cfg.visualizer.alpha = POSE_VIS_ALPHA
+        pose_estimator_wholebody.cfg.visualizer.line_width = POSE_VIS_LINE_WIDTH
+        visualizer_wholebody = VISUALIZERS.build(pose_estimator_wholebody.cfg.visualizer)
+        visualizer_wholebody.set_dataset_meta(pose_estimator_wholebody.dataset_meta, skeleton_style='mmpose')
 
     # Initialize YOLO models
     yolo_person = YOLO(YOLO_PERSON_WEIGHTS)
@@ -828,12 +848,13 @@ def estimate_pose(img, bbox, pose_type='hand', show=False, write_img=None):
     Args:
         img: Input image (path or numpy array)
         bbox: Bounding box coordinates [[x1,y1,x2,y2]]
-        pose_type: Type of pose to estimate ('hand' or 'body')
+        pose_type: Type of pose to estimate ('hand', 'body', or 'sapiens')
         show: Whether to show visualization
         write_img: Optional image to draw visualization on
     
     Returns:
-        Predicted pose instances
+        For 'hand' or 'body': Predicted pose instances
+        For 'sapiens': Tuple of (body_instances, left_hand_instances, right_hand_instances)
     """
     check_models_initialized()
 
@@ -872,7 +893,7 @@ def estimate_pose(img, bbox, pose_type='hand', show=False, write_img=None):
 
         return data_samples.get('pred_instances', None)
 
-    else:
+    elif pose_type == 'body':
         # Predict keypoints
         pose_results = inference_topdown(pose_estimator_body, img, bbox)
         data_samples = merge_data_samples(pose_results)
@@ -900,6 +921,76 @@ def estimate_pose(img, bbox, pose_type='hand', show=False, write_img=None):
                 kpt_thr=POSE_KPT_THRESHOLD)
 
         return data_samples.get('pred_instances', None)
+    
+    elif pose_type == 'wholebody':
+        # Predict keypoints using SAPIENS wholebody model
+        pose_results = inference_topdown(pose_estimator_wholebody, img, bbox)
+        data_samples = merge_data_samples(pose_results)
+        
+        # Visualize if requested
+        if visualizer_wholebody is not None and show:
+            if write_img is None:
+                write_img = img
+            if isinstance(write_img, str):
+                write_img = mmcv.imread(write_img, channel_order='rgb')
+            elif isinstance(write_img, np.ndarray):
+                write_img = mmcv.bgr2rgb(write_img)
+
+            visualizer_wholebody.add_datasample(
+                'result',
+                write_img,
+                data_sample=data_samples,
+                draw_gt=False,
+                draw_heatmap=False,
+                draw_bbox=True,
+                show_kpt_idx=False,
+                skeleton_style='mmpose',
+                show=show,
+                wait_time=0.1,
+                kpt_thr=POSE_KPT_THRESHOLD)
+        
+        # Get the predicted instances from the data sample
+        pred_instances = data_samples.get('pred_instances', None)
+        
+        if pred_instances is None:
+            return None, None, None
+        
+        # Extract body, left hand, and right hand keypoints
+        # Based on the COCO-WholeBody dataset format used by SAPIENS
+        # Body keypoints are the first 17 points (0-16)
+        # Left hand starts at index 91 and has 21 keypoints (91-111)
+        # Right hand starts at index 112 and has 21 keypoints (112-132)
+        
+        # Create a copy of the instances to avoid modifying the original
+        body_instances = pred_instances.clone()
+        left_hand_instances = pred_instances.clone()
+        right_hand_instances = pred_instances.clone()
+
+        # Extract body keypoints (first 17 keypoints)
+        body_keypoints = pred_instances.keypoints[:, :17, :]
+        body_instances.keypoints = body_keypoints
+        body_instances.keypoint_scores = pred_instances.keypoint_scores[:, :17]
+        
+        # Extract left hand keypoints (indices 91-111)
+        if pred_instances.keypoints.shape[1] > 111:
+            left_hand_keypoints = pred_instances.keypoints[:, 91:112, :]
+            left_hand_instances.keypoints = left_hand_keypoints
+            left_hand_instances.keypoint_scores = pred_instances.keypoint_scores[:, 91:112]
+        else:
+            left_hand_instances = None
+            
+        # Extract right hand keypoints (indices 112-132)
+        if pred_instances.keypoints.shape[1] > 132:
+            right_hand_keypoints = pred_instances.keypoints[:, 112:133, :]
+            right_hand_instances.keypoints = right_hand_keypoints
+            right_hand_instances.keypoint_scores = pred_instances.keypoint_scores[:, 112:133]       
+        else:
+            right_hand_instances = None
+            
+        return body_instances, left_hand_instances, right_hand_instances
+        
+    else:
+        raise ValueError(f"Invalid pose_type: {pose_type}. Must be 'hand', 'body', or 'sapiens'.")
 
 '''      NEW ROHAN DETECTION FUNCTIONS       '''
 

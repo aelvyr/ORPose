@@ -6,9 +6,11 @@ for i in range(1, 13):
 num_cameras = len(cam_names)
 num_keypoints = 26
 num_keypoints_hands = 21
+num_wholebody_keypoints = 17  # Number of keypoints in the COCO wholebody body model
 hidden_keypoints = []
 
 # Constants
+# Original 26-keypoint body model pairs
 KEYPOINT_PAIRS = [
     [
         15,
@@ -118,6 +120,32 @@ KEYPOINT_PAIRS = [
         16,
         25
     ]
+]
+
+# Wholebody 17-keypoint body model pairs based on COCO format
+# The keypoints are:
+# 0:nose, 1:left_eye, 2:right_eye, 3:left_ear, 4:right_ear, 5:left_shoulder, 6:right_shoulder, 
+# 7:left_elbow, 8:right_elbow, 9:left_wrist, 10:right_wrist, 11:left_hip, 12:right_hip, 
+# 13:left_knee, 14:right_knee, 15:left_ankle, 16:right_ankle
+WHOLEBODY_KEYPOINT_PAIRS = [
+    [0, 1],  # nose to left eye
+    [0, 2],  # nose to right eye
+    [1, 3],  # left eye to left ear
+    [2, 4],  # right eye to right ear
+    [0, 5],  # nose to left shoulder
+    [0, 6],  # nose to right shoulder
+    [5, 6],  # left to right shoulder
+    [5, 7],  # left shoulder to left elbow
+    [7, 9],  # left elbow to left wrist
+    [6, 8],  # right shoulder to right elbow
+    [8, 10], # right elbow to right wrist
+    [5, 11],  # left shoulder to left hip
+    [6, 12],  # right shoulder to right hip
+    [11, 12], # left hip to right hip
+    [11, 13], # left hip to left knee
+    [13, 15], # left knee to left ankle
+    [12, 14], # right hip to right knee
+    [14, 16]  # right knee to right ankle
 ]
 
 KEYPOINT_PAIRS_HANDS = [
