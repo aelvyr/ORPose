@@ -7,5 +7,6 @@ bboxes/
 checkpoints/
 configs/
 camera_poses/
+.DS_Store
 
 __pycache__/
