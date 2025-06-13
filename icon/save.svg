@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="32"
+   height="32"
+   viewBox="0 0 32 32"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.4.2 (ebf0e940d0, 2025-05-08)"
+   sodipodi:docname="save.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="px"
+     inkscape:zoom="15.428702"
+     inkscape:cx="17.629481"
+     inkscape:cy="17.856331"
+     inkscape:window-width="1518"
+     inkscape:window-height="900"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs1" />
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <path
+       d="M 28,10 22,4 H 6.0097656 C 4.8966454,4 4,4.8966454 4,6.0097656 V 25.990234 C 4,27.103355 4.8966454,28 6.0097656,28 H 25.990234 C 27.103355,28 28,27.103355 28,25.990234 Z"
+       style=""
+       id="path2" />
+    <rect
+       style="fill:#ffffff"
+       id="rect2"
+       width="12"
+       height="12"
+       x="10"
+       y="0"
+       ry="1.4907281" />
+    <rect
+       style="fill:#000000;stroke-width:1.22474"
+       id="rect3"
+       width="3"
+       height="6"
+       x="17"
+       y="4" />
+    <rect
+       style="fill:#ffffff;stroke-width:1.09545"
+       id="rect4"
+       width="18"
+       height="12"
+       x="7"
+       y="16"
+       ry="2.3999999" />
+    <rect
+       style="fill:#000000;stroke-width:0.909411"
+       id="rect5"
+       width="20"
+       height="3"
+       x="6"
+       y="25"
+       ry="0" />
+  </g>
+</svg>

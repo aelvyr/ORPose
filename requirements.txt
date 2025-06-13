@@ -1,0 +1,6 @@
+numpy
+opencv-python
+PyQt5
+matplotlib
+mmengine
+torch
