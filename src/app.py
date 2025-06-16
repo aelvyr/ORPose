@@ -51,6 +51,12 @@ class App(QApplication):
     def set_keypoint_advance(self, idx):
         self.keypoint_advance = idx - 1
 
+    def next_keypoint(self):
+        self.set_current_keypoint(self.current_keypoint + 1)
+
+    def prev_keypoint(self):
+        self.set_current_keypoint(self.current_keypoint - 1)
+
     def set_current_keypoint(self, idx):
         if 0 <= idx <= 20:
             self.current_keypoint = idx
