@@ -42,6 +42,11 @@ class Toolbar(QToolBar):
         hand_selector.currentIndexChanged.connect(self.app.change_hand)
         self.addWidget(hand_selector)
 
+        flip_sides = QAction(QIcon("icon/flip.svg"), "flips hand side", parent)
+        flip_sides.setStatusTip("Flips the data from one side to the other")
+        flip_sides.triggered.connect(self.app.flip_hand_side)
+        self.addAction(flip_sides)
+
         self.addSeparator()
 
         start_button = QAction(QIcon("icon/start.svg"), "start", parent)

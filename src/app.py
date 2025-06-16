@@ -74,6 +74,13 @@ class App(QApplication):
         self.window.toolbar.visibility_button.setIcon(self.window.toolbar.visibility_icons[self.keypoints_hidden])
         self.window.canvas.viewport.draw_keypoints()
 
+    def flip_hand_side(self):
+        for frame in range(0, self.current_camera.frame_count):
+            tmp = self.dataset.poses[self.current_camera.name()][frame][0]
+            self.dataset.poses[self.current_camera.name()][frame][0] = self.dataset.poses[self.current_camera.name()][frame][1]
+            self.dataset.poses[self.current_camera.name()][frame][1] = tmp
+        self.window.canvas.viewport.draw_keypoints()
+
 def main():
     dataset_name = "cha1"
     if len(sys.argv) > 1:
