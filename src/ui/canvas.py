@@ -33,6 +33,8 @@ class Viewport(Keypoints):
         self.render_current_frame()
 
     def render_check(self, index):
+        if self.app.keypoints_hidden:
+            return False
         return self.app.dataset.get_pose(self.app.current_camera, self.app.current_hand).is_keypoint_drawable(index)
 
     def draw_keypoints(self):

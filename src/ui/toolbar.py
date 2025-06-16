@@ -15,6 +15,11 @@ class Mode(Enum):
 
 class Toolbar(QToolBar):
 
+    visibility_icons = {
+        True: QIcon("icon/hidden.svg"),
+        False: QIcon("icon/shown.svg")
+    }
+
     def change_mode(self, mode):
         self.mode.toggle_in(self.app.window.canvas.nav_toolbar)
         self.mode = mode
@@ -101,10 +106,14 @@ class Toolbar(QToolBar):
         advance_selector.currentIndexChanged.connect(self.app.set_keypoint_advance)
         self.addWidget(advance_selector)
 
+        self.visibility_button = QAction(self.visibility_icons[self.app.keypoints_hidden], "toggle keypoint visibility", parent)
+        self.visibility_button.setStatusTip("Toggle keypoint visibility")
+        self.visibility_button.triggered.connect(self.app.toggle_keypoint_visibility)
+        self.addAction(self.visibility_button)
+
         delete_keypoint_button = QAction(QIcon("icon/delete.svg"), "delete", parent)
         delete_keypoint_button.setStatusTip("Delete keypoint")
         delete_keypoint_button.triggered.connect(self.app.delete_keypoint)
-        self.tool_group.addAction(delete_keypoint_button)
         self.addAction(delete_keypoint_button)
 
         self.addSeparator()

@@ -12,6 +12,7 @@ class App(QApplication):
         self.current_keypoint = 0
         self.keypoint_advance = 0
         self.frame_step = 30
+        self.keypoints_hidden = False
         self.window = Window(self)
 
     def run(self):
@@ -66,7 +67,12 @@ class App(QApplication):
         self.dataset.get_pose(self.current_camera, self.current_hand).remove_keypoint(self.current_keypoint)
         if self.keypoint_advance != 0:
             self.set_current_keypoint(self.current_keypoint + self.keypoint_advance)
-        self.window.canvas.viewport.render_current_frame()
+        self.window.canvas.viewport.draw_keypoints()
+
+    def toggle_keypoint_visibility(self):
+        self.keypoints_hidden = not self.keypoints_hidden
+        self.window.toolbar.visibility_button.setIcon(self.window.toolbar.visibility_icons[self.keypoints_hidden])
+        self.window.canvas.viewport.draw_keypoints()
 
 def main():
     dataset_name = "cha1"
