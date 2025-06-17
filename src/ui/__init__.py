@@ -5,6 +5,9 @@ from ui.toolbar import Toolbar
 from ui.canvas import Canvas
 
 class Window(QMainWindow):
+    """
+    Main window of the application.
+    """
     def __init__(self, app):
         super().__init__()
         self.toolbar = Toolbar(app, parent=self)
