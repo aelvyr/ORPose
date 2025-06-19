@@ -18,5 +18,5 @@ And the video data in the `inputs/<dataset_name>` directory with the name `<came
 Then you can run the tool by executing the following command:
 
 ```
-python3 src/main.py <dataset_name>
+python3 src/app.py <dataset_name>
 ```
