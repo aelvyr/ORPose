@@ -32,7 +32,7 @@ class KeypointPicker(Keypoints):
         """
         This method handles the logic when someone clicks on a keypoint and thus selects it.
         """
-        if not isinstance(event.artist, Keypoint):
+        if event.mouseevent.inaxes != self.axes or not isinstance(event.artist, Keypoint):
             return
         self.app.set_current_keypoint(event.artist.index)
 
@@ -44,7 +44,7 @@ class Viewport(Keypoints):
         """
         Initializes the Viewport object.
         """
-        super().__init__(app, axes, app.dataset.get_pose(app.current_camera, app.current_hand).get_positions())
+        super().__init__(app, axes, app.dataset.get_pose(app.current_camera, app.current_hand).get_positions(), pickable=False)
         self.axes.get_figure().canvas.mpl_connect('button_press_event', self.on_click)
         self.img_display = self.axes.imshow(self.app.current_camera.get_current_frame())
         self.render_current_frame()

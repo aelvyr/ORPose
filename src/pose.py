@@ -1,4 +1,3 @@
-from ntpath import sep
 """
 This module contains all the functionality related to interfacing with the underlying pose dataset.
 """
@@ -46,6 +45,7 @@ class PoseData:
         This method saves the pose data to the file with the path specified in self.path.
         """
         np.savez(self.path, poses_2d=self.poses)
+        print(f"Saved poses to {self.path}")
 
     def get_pose(self, camera: Camera, hand_idx: int):
         """
