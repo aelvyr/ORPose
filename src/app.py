@@ -19,6 +19,7 @@ class App(QApplication):
         self.current_hand = 0
         self.current_keypoint = 0
         self.keypoint_advance = 0
+        self.current_person = 0
         self.frame_step = 30
         self.keypoints_hidden = False
         self.window = Window(self)
@@ -100,7 +101,7 @@ class App(QApplication):
         """
         Places a keypoint at the given coordinates.
         """
-        self.dataset.get_pose(self.current_camera, self.current_hand).place_keypoint(self.current_keypoint, x, y)
+        self.dataset.get_pose(self.current_person, self.current_camera, self.current_hand).place_keypoint(self.current_keypoint, x, y)
         if self.keypoint_advance != 0:
             self.set_current_keypoint(self.current_keypoint + self.keypoint_advance)
         self.window.canvas.viewport.draw()
@@ -109,7 +110,7 @@ class App(QApplication):
         """
         Deletes the current keypoint.
         """
-        self.dataset.get_pose(self.current_camera, self.current_hand).remove_keypoint(self.current_keypoint)
+        self.dataset.get_pose(self.current_person, self.current_camera, self.current_hand).remove_keypoint(self.current_keypoint)
         if self.keypoint_advance != 0:
             self.set_current_keypoint(self.current_keypoint + self.keypoint_advance)
         self.window.canvas.viewport.draw()
@@ -126,7 +127,7 @@ class App(QApplication):
         """
         Flips the data of the two hands.
         """
-        self.dataset.flip_hands(self.current_camera)
+        self.dataset.flip_hands(self.current_person, self.current_camera)
         self.window.canvas.viewport.draw()
 
 def parse_args():
