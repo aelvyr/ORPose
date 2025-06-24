@@ -56,6 +56,7 @@ class Toolbar(QToolBar):
     def add_data_options(self):
         self.add_label("Data Options")
         self.add_camera_selector()
+        self.add_person_selector()
         self.add_hand_selector()
         self.add_flip_side_button()
         self.add_save_button()
@@ -90,6 +91,16 @@ class Toolbar(QToolBar):
         self.camera_selector.addItems(self.app.dataset.available_cameras())
         self.camera_selector.currentIndexChanged.connect(self.app.change_camera)
         self.addWidget(self.camera_selector)
+
+    def add_person_selector(self):
+        if (self.app.dataset.persons <= 1):
+            return
+        self.add_label("Person:")
+        self.person_selector = QComboBox(self.parentWidget())
+        for person in range(self.app.dataset.persons):
+            self.person_selector.addItem(str(person))
+        self.person_selector.currentIndexChanged.connect(self.app.change_person)
+        self.addWidget(self.person_selector)
 
     def add_hand_selector(self):
         self.add_label("Hand:")

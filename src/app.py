@@ -31,6 +31,13 @@ class App(QApplication):
         self.current_camera = self.dataset.cameras.get(index)
         self.window.canvas.viewport.render_current_frame()
 
+    def change_person(self, index):
+        """
+        Change the current person to the one at the given index.
+        """
+        self.current_person = index
+        self.window.canvas.viewport.draw()
+
     def change_hand(self, index):
         """
         Change the current hand to the one at the given index.

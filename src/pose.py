@@ -45,6 +45,7 @@ class PoseData:
                 i += 1
         self.load()
         self.cameras = Cameras(dataset_name, self.available_cameras())
+        self.persons = len(self.paths)
         print(f"Loaded camera metadata from the dataset")
 
     def available_cameras(self):
