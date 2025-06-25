@@ -12,11 +12,80 @@ First you will need to install the required dependencies. You can do this by run
 pip install -r requirements.txt
 ```
 
-Afterwards, you will need to put your pose data in to the `output_3d/<dataset_name>` directory with the name `hand_poses_2d.npz`.
-And the video data in the `inputs/<dataset_name>` directory with the name `<camera_name>_synced_cut.MP4`.
+## Usage
 
-Then you can run the tool by executing the following command:
+### Opening a dataset
+
+You will need to put your pose data in to the `output_3d/<dataset_name>` directory with the name `hand_poses_2d.npz`.
+And the videos in the `inputs/<dataset_name>` directory with the name `<camera_name>.MP4`.
+
+Then you can open the dataset by executing the following command:
 
 ```
 python3 src/app.py <dataset_name>
 ```
+
+### Selecting a person
+
+Skip this step if there is only one person in the dataset, since the buttons regarding this will be hidden.
+
+First you will want to select the person you want to label by selecting a person from the persons dropdown menu in the toolbar.
+Note that this number is the index of the person in the dataset.
+So in general it does not matter which person has which number, aslong as you stay consistent.
+
+### Selecting a hand
+
+To select which hand you want to label, select a hand from the hands dropdown menu in the toolbar.
+"Left" and "Right" commonly refer to the left and right hand from the perspective of the human they are attached to.
+
+### Selecting the right tool
+
+There are three primary tools, all found in the Canvas Tools section:
+ - Place (Mouse): Used to place keypoints on the hand and select keypoints.
+ - Pan (4 Arrows): Used to move around in the frame.
+ - Zoom (Magnifying Glass): Used to zoom in to the frame.
+
+You can also use the reset view button (House) to reset the view to the default.
+
+### Selecting a keypoint
+
+To select a keypoint, make sure you have the place tool selected.
+Afterwards, on the right hand side of the window is a image of the keypoints of the hand, where from left to right we have the fingers:
+ - Thumb (Red)
+ - Index (Green)
+ - Middle (Blue)
+ - Ring (Yellow)
+ - Pinky (Pink)
+and at the bottom there is the wrist (Red)
+You can just click on the desired keypoint to select it.
+Your selected keypoint should now have a black outline around it.
+
+You can also use the arrow buttons in the toolbar or the `W` and `S` keys to navigate through the keypoints or use the auto-advance dropdown menu to set whether you want to automatically advance to the next keypoint after having placed one.
+
+### Placing a keypoint
+
+To place the keypoint, make sure you have the place tool selected, you can click on the desired location in the still frame of the video on the left side of the window.
+
+**When having missplaced a keypoint, just delete it again or place it somewhere else, there is no `Ctrl+Z` or back button**
+
+### Deleting a keypoint
+
+To delete a keypoint you can click the bin icon in the toolbar or press `R`.
+
+### Changing the keypoints appearance
+
+You can change the size of the keypoints in the video by clicking the slider in the toolbar.
+To toggle hiding all keypoints you can click the eye icon in the toolbar or press `Space`.
+
+### Moving between frames
+
+You can move backward or forward by pressing the left or right arrows in the `Media Control` section in the toolbar or press `A` or `D` respectively.
+You can also move to the first or last frame by pressing the double left or right arrows in the toolbar or press `Shift+A` or `Shift+D` respectively.
+
+### Changing the camera
+
+You can change the current camera for which you are labeling keypoints by choosing a different camera in the camera dropdown menu.
+
+### Saving your changes
+
+To save your changes, you can click the save icon in the toolbar or press `Ctrl+S`.

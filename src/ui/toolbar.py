@@ -233,6 +233,7 @@ class Toolbar(QToolBar):
     def add_save_button(self):
         self.save_button = QAction(QIcon("icon/save.svg"), "save", self.parentWidget())
         self.save_button.setStatusTip("Save keypoints")
+        self.save_button.setShortcut("Ctrl+S")
         self.save_button.triggered.connect(self.app.save)
         self.addAction(self.save_button)
 
