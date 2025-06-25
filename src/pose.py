@@ -93,7 +93,7 @@ class PoseData:
         This method saves the pose data to the file with the path specified in self.path.
         """
         for idx, path in self.paths:
-            np.savez(path, poses_2d=self.data[idx])
+            np.savez(path / "hand_poses_2d.npz", poses_2d=self.data[idx])
             print(f"Saved poses to {path}")
 
     def get_pose(self, person: int, camera: Camera, hand_idx: int):
