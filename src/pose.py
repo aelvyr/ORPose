@@ -9,8 +9,12 @@ import cv2 as cv
 from camera import Camera, Cameras # Used to handle camera metadata
 
 class FrameData:
-    keypoints = {}
-    keypoint_scores = {}
+    def __init__(self, frame, camera, person):
+        self.frame = frame
+        self.camera = camera
+        self.person = person
+        self.keypoints = np.zeros((1, 21, 2))
+        self.keypoint_scores = np.zeros((1, 21))
 
 class PoseData:
     """
@@ -64,7 +68,7 @@ class PoseData:
             for i in range(0,frames):
                 self.data[idx][camera].append([])
                 for j in range(2):
-                    self.data[idx][camera][i].append(FrameData())
+                    self.data[idx][camera][i].append(FrameData(i, camera, idx))
                     for k in range(21):
                         self.data[idx][camera][i][j].keypoints[0, k] = (0,0)
                         self.data[idx][camera][i][j].keypoint_scores[0, k] = 0
@@ -77,7 +81,7 @@ class PoseData:
         self.data = []
         for idx, path in self.paths:
             path = path / "hand_poses_2d.npz"
-            self.data.append([])
+            self.data.append({})
             if not path.exists():
                 self.empty_data(idx)
                 continue
@@ -105,7 +109,7 @@ class PoseData:
         Returns:
             Pose: The pose object for the given camera and hand index.
         """
-        return Pose(self.data[person], camera, hand_idx)
+        return Pose(self, person, camera, hand_idx)
 
     def flip_hands(self, person: int, camera: Camera):
         """
@@ -130,7 +134,7 @@ class Pose:
     - camera: A reference to the Camera object which is used to index into the pose data.
     - hand_idx: The hand index which is used to index into the pose data.
     """
-    def __init__(self, data, camera: Camera, hand_idx: int):
+    def __init__(self, data, person, camera: Camera, hand_idx: int):
         """
         Initialize a Pose object. Normally this method should not be called directly.
         Instead, use the PoseData.get_pose method to obtain a Pose object.
@@ -141,6 +145,7 @@ class Pose:
             hand_idx (int): The hand index which is used to index into the pose data.
         """
         self.data = data
+        self.person = person
         self.camera = camera
         self.hand_idx = hand_idx
 
@@ -154,7 +159,7 @@ class Pose:
         """
         Generates the positions in the current frame for each keypoint.
         """
-        keypoints_data = self.data[self.camera.name()][self.camera.current_frame_idx][self.hand_idx].keypoints
+        keypoints_data = self.data.data[self.person][self.camera.name()][self.camera.current_frame_idx][self.hand_idx].keypoints
         for i in range(0, 21):
             pos = keypoints_data[0, i]
             yield (pos[0], pos[1])
@@ -168,8 +173,8 @@ class Pose:
             x (float): The x-coordinate of the keypoint.
             y (float): The y-coordinate of the keypoint.
         """
-        self.data[self.camera.name()][self.camera.current_frame_idx][self.hand_idx].keypoints[0, keypoint_idx] = [x, y]
-        self.data[self.camera.name()][self.camera.current_frame_idx][self.hand_idx].keypoint_scores[0, keypoint_idx] = 1.0
+        self.data.data[self.person][self.camera.name()][self.camera.current_frame_idx][self.hand_idx].keypoints[0, keypoint_idx] = [x, y]
+        self.data.data[self.person][self.camera.name()][self.camera.current_frame_idx][self.hand_idx].keypoint_scores[0, keypoint_idx] = 1.0
 
     def remove_keypoint(self, keypoint_idx: int):
         """
@@ -178,7 +183,7 @@ class Pose:
         Args:
             keypoint_idx (int): The index of the keypoint to remove.
         """
-        self.data[self.camera.name()][self.camera.current_frame_idx][self.hand_idx].keypoint_scores[0, keypoint_idx] = 0.0
+        self.data.data[self.person][self.camera.name()][self.camera.current_frame_idx][self.hand_idx].keypoint_scores[0, keypoint_idx] = 0.0
 
     def is_keypoint_drawable(self, keypoint_idx: int):
         """
@@ -190,4 +195,4 @@ class Pose:
         Returns:
             bool: True if the keypoint is drawable, False otherwise.
         """
-        return self.data[self.camera.name()][self.camera.current_frame_idx][self.hand_idx].keypoint_scores[0, keypoint_idx] > 0.3
+        return self.data.data[self.person][self.camera.name()][self.camera.current_frame_idx][self.hand_idx].keypoint_scores[0, keypoint_idx] > 0.3
