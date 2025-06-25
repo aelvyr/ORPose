@@ -44,7 +44,7 @@ class Viewport(Keypoints):
         """
         Initializes the Viewport object.
         """
-        super().__init__(app, axes, app.dataset.get_pose(app.current_camera, app.current_hand).get_positions(), pickable=False)
+        super().__init__(app, axes, app.dataset.get_pose(app.current_person, app.current_camera, app.current_hand).get_positions(), pickable=False)
         self.axes.get_figure().canvas.mpl_connect('button_press_event', self.on_click)
         self.img_display = self.axes.imshow(self.app.current_camera.get_current_frame())
         self.render_current_frame()
@@ -55,13 +55,13 @@ class Viewport(Keypoints):
         """
         if self.app.keypoints_hidden:
             return False
-        return super().should_keypoint_render(keypoint) and self.app.dataset.get_pose(self.app.current_camera, self.app.current_hand).is_keypoint_drawable(keypoint.index)
+        return super().should_keypoint_render(keypoint) and self.app.dataset.get_pose(self.app.current_person, self.app.current_camera, self.app.current_hand).is_keypoint_drawable(keypoint.index)
 
     def draw(self):
         """
         (Re)Draws the keypoints.
         """
-        self.positions = self.app.dataset.get_pose(self.app.current_camera, self.app.current_hand).get_positions()
+        self.positions = self.app.dataset.get_pose(self.app.current_person, self.app.current_camera, self.app.current_hand).get_positions()
         super().draw()
 
     def render_current_frame(self):

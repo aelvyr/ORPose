@@ -3,9 +3,18 @@ This module contains all the functionality related to interfacing with the under
 """
 
 import numpy as np # Used to read and write the pose data format
-import os # Used to handle file paths
+from pathlib import Path
+import cv2 as cv
 
 from camera import Camera, Cameras # Used to handle camera metadata
+
+class FrameData:
+    def __init__(self, frame, camera, person):
+        self.frame = frame
+        self.camera = camera
+        self.person = person
+        self.keypoints = np.zeros((1, 21, 2))
+        self.keypoint_scores = np.zeros((1, 21))
 
 class PoseData:
     """
@@ -25,29 +34,69 @@ class PoseData:
             dataset_name (str): The name of the dataset.
         """
         self.name = dataset_name
-        self.path = os.path.join("output_3d", dataset_name, 'hand_poses_2d.npz')
+        output_3d = Path("output_3d")
+        legacy = output_3d / dataset_name
+        if legacy.exists():
+            self.paths = [(0, legacy)]
+        else:
+            i = 0
+            self.paths = []
+            while True:
+                path = output_3d / f"{dataset_name}_{i}"
+                if not path.exists():
+                    break
+                self.paths += [(i, path)]
+                i += 1
         self.load()
-        self.cameras = Cameras(dataset_name, list(self.poses.keys()))
+        self.cameras = Cameras(dataset_name, self.available_cameras())
+        self.persons = len(self.paths)
         print(f"Loaded camera metadata from the dataset")
+
+    def available_cameras(self):
+        video_path = Path("inputs") / self.name
+        cameras = []
+        for camera_file in video_path.iterdir():
+            cameras += [camera_file.stem]
+        return cameras
+
+    def empty_data(self, idx):
+        self.data[idx] = {}
+        for camera in self.available_cameras():
+            self.data[idx][camera] = []
+            video = cv.VideoCapture(Path("inputs") / self.name / f"{camera}.MP4")
+            frames = int(video.get(cv.CAP_PROP_FRAME_COUNT))
+            for i in range(0,frames):
+                self.data[idx][camera].append([])
+                for j in range(2):
+                    self.data[idx][camera][i].append(FrameData(i, camera, idx))
+                    for k in range(21):
+                        self.data[idx][camera][i][j].keypoints[0, k] = (0,0)
+                        self.data[idx][camera][i][j].keypoint_scores[0, k] = 0
+            print(f"Initialized empty data for person {idx}")
 
     def load(self):
         """
         This method (re)loads pose data from the file with the path specified in self.path.
         """
-        if not os.path.exists(self.path):
-            return None
-        data = np.load(self.path, allow_pickle=True)
-        self.poses = data['poses_2d'].item()
-        print(f"Loaded poses from {self.path}")
+        self.data = []
+        for idx, path in self.paths:
+            path = path / "hand_poses_2d.npz"
+            self.data.append({})
+            if not path.exists():
+                self.empty_data(idx)
+                continue
+            self.data[idx] = np.load(path, allow_pickle=True)["poses_2d"].item()
+            print(f"Loaded pose data from {path}")
 
     def save(self):
         """
         This method saves the pose data to the file with the path specified in self.path.
         """
-        np.savez(self.path, poses_2d=self.poses)
-        print(f"Saved poses to {self.path}")
+        for idx, path in self.paths:
+            np.savez(path / "hand_poses_2d.npz", poses_2d=self.data[idx])
+            print(f"Saved poses to {path}")
 
-    def get_pose(self, camera: Camera, hand_idx: int):
+    def get_pose(self, person: int, camera: Camera, hand_idx: int):
         """
         This method allows you to get a pose object for the given camera and hand index.
         The pose object serves as an abstraction over the raw pose data,
@@ -60,16 +109,16 @@ class PoseData:
         Returns:
             Pose: The pose object for the given camera and hand index.
         """
-        return Pose(self, camera, hand_idx)
+        return Pose(self, person, camera, hand_idx)
 
-    def flip_hands(self, camera: Camera):
+    def flip_hands(self, person: int, camera: Camera):
         """
         Flips the data of the two hands.
         """
         for frame in range(0, camera.frame_count):
-            tmp = self.poses[camera.name()][frame][0]
-            self.poses[camera.name()][frame][0] = self.poses[camera.name()][frame][1]
-            self.poses[camera.name()][frame][1] = tmp
+            tmp = self.data[person][camera.name()][frame][0]
+            self.data[person][camera.name()][frame][0] = self.data[person][camera.name()][frame][1]
+            self.data[person][camera.name()][frame][1] = tmp
 
 class Pose:
     """
@@ -85,7 +134,7 @@ class Pose:
     - camera: A reference to the Camera object which is used to index into the pose data.
     - hand_idx: The hand index which is used to index into the pose data.
     """
-    def __init__(self, data: PoseData, camera: Camera, hand_idx: int):
+    def __init__(self, data, person, camera: Camera, hand_idx: int):
         """
         Initialize a Pose object. Normally this method should not be called directly.
         Instead, use the PoseData.get_pose method to obtain a Pose object.
@@ -96,6 +145,7 @@ class Pose:
             hand_idx (int): The hand index which is used to index into the pose data.
         """
         self.data = data
+        self.person = person
         self.camera = camera
         self.hand_idx = hand_idx
 
@@ -109,7 +159,7 @@ class Pose:
         """
         Generates the positions in the current frame for each keypoint.
         """
-        keypoints_data = self.data.poses[self.camera.name()][self.camera.current_frame_idx][self.hand_idx].keypoints
+        keypoints_data = self.data.data[self.person][self.camera.name()][self.camera.current_frame_idx][self.hand_idx].keypoints
         for i in range(0, 21):
             pos = keypoints_data[0, i]
             yield (pos[0], pos[1])
@@ -123,8 +173,8 @@ class Pose:
             x (float): The x-coordinate of the keypoint.
             y (float): The y-coordinate of the keypoint.
         """
-        self.data.poses[self.camera.name()][self.camera.current_frame_idx][self.hand_idx].keypoints[0, keypoint_idx] = [x, y]
-        self.data.poses[self.camera.name()][self.camera.current_frame_idx][self.hand_idx].keypoint_scores[0, keypoint_idx] = 1.0
+        self.data.data[self.person][self.camera.name()][self.camera.current_frame_idx][self.hand_idx].keypoints[0, keypoint_idx] = [x, y]
+        self.data.data[self.person][self.camera.name()][self.camera.current_frame_idx][self.hand_idx].keypoint_scores[0, keypoint_idx] = 1.0
 
     def remove_keypoint(self, keypoint_idx: int):
         """
@@ -133,7 +183,7 @@ class Pose:
         Args:
             keypoint_idx (int): The index of the keypoint to remove.
         """
-        self.data.poses[self.camera.name()][self.camera.current_frame_idx][self.hand_idx].keypoint_scores[0, keypoint_idx] = 0.0
+        self.data.data[self.person][self.camera.name()][self.camera.current_frame_idx][self.hand_idx].keypoint_scores[0, keypoint_idx] = 0.0
 
     def is_keypoint_drawable(self, keypoint_idx: int):
         """
@@ -145,4 +195,4 @@ class Pose:
         Returns:
             bool: True if the keypoint is drawable, False otherwise.
         """
-        return self.data.poses[self.camera.name()][self.camera.current_frame_idx][self.hand_idx].keypoint_scores[0, keypoint_idx] > 0.3
+        return self.data.data[self.person][self.camera.name()][self.camera.current_frame_idx][self.hand_idx].keypoint_scores[0, keypoint_idx] > 0.3

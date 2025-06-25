@@ -39,7 +39,7 @@ class Camera:
         """
         Returns the path to the video file.
         """
-        path = os.path.join(self.cameras.video_path, f"{self.name()}_synced_cut.MP4")
+        path = os.path.join(self.cameras.video_path, f"{self.name()}.MP4")
         return path
 
     def load(self):
