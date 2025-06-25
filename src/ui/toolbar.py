@@ -1,6 +1,7 @@
 from enum import Enum
-from PyQt5.QtWidgets import QToolBar, QLabel, QComboBox, QAction, QActionGroup
+from PyQt5.QtWidgets import QToolBar, QLabel, QComboBox, QAction, QActionGroup, QSlider
 from PyQt5.QtGui import QIcon
+from PyQt5.QtCore import Qt
 
 class Mode(Enum):
     """
@@ -81,6 +82,7 @@ class Toolbar(QToolBar):
         self.add_label("Keypoint Controls")
         self.add_previous_keypoint_button()
         self.add_next_keypoint_button()
+        self.add_radius_selector()
         self.add_auto_advance_selector()
         self.add_visibility_button()
         self.add_delete_button()
@@ -194,6 +196,17 @@ class Toolbar(QToolBar):
         self.next_keypoint_button.triggered.connect(self.app.next_keypoint)
         self.next_keypoint_button.setShortcut("W")
         self.addAction(self.next_keypoint_button)
+
+    def add_radius_selector(self):
+        self.add_label("Radius:")
+        self.radius_selector = QSlider(Qt.Horizontal)
+        self.radius_selector.setMinimum(10)
+        self.radius_selector.setMaximum(100)  # Represents 0.0 to 10.0 if step is 0.01
+        self.radius_selector.setValue(50)
+        self.radius_selector.setMinimumWidth(100)
+        self.radius_selector.setMaximumWidth(200)
+        self.radius_selector.valueChanged.connect(self.app.resize_keypoints)
+        self.addWidget(self.radius_selector)
 
     def add_auto_advance_selector(self):
         self.add_label("Auto Advance:")

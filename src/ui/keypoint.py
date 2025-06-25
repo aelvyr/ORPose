@@ -131,6 +131,10 @@ class Keypoints:
         """
         return 0 <= keypoint.index <= len(self.keypoints)
 
+    def set_radius(self, radius: float):
+        for keypoint in self.keypoints:
+            keypoint.set_radius(radius)
+
     def draw(self):
         """
         Draws the keypoints and their connections.

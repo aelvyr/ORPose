@@ -91,6 +91,13 @@ class App(QApplication):
         """
         self.set_current_keypoint(self.current_keypoint - 1)
 
+    def resize_keypoints(self, size: int):
+        """
+        Resizes the keypoints.
+        """
+        self.window.canvas.viewport.set_radius(float(size)/10.0)
+        self.window.canvas.viewport.draw()
+
     def set_current_keypoint(self, idx):
         """
         Sets the current keypoint index.
