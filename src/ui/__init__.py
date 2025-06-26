@@ -4,15 +4,14 @@ from PyQt5.QtCore import Qt
 from ui.toolbar import Toolbar
 from ui.canvas import Canvas
 
-class Window(QMainWindow):
+class ProjectWindow(QMainWindow):
     """
     Main window of the application.
     """
-    def __init__(self, app):
+    def __init__(self, project):
         super().__init__()
-        self.toolbar = Toolbar(app, parent=self)
+        self.toolbar = Toolbar(project, parent=self)
         self.addToolBar(self.toolbar)
-        self.canvas = Canvas(app)
+        self.canvas = Canvas(project)
         self.setCentralWidget(self.canvas)
         self.setWindowTitle("Correct Pose")
-        self.show()

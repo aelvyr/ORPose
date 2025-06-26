@@ -72,19 +72,19 @@ class Keypoints:
     """
     colors = ['red', 'green', 'blue', 'yellow', 'magenta']
 
-    def __init__(self, app, axes, positions, radius=5.0, pickable=False):
+    def __init__(self, project, axes, positions, radius=5.0, pickable=False):
         """
         Initializes the Keypoints object.
 
         Args:
-            app: A reference to the application instance.
+            project: A reference to the application instance.
             axes: The matplotlib axes where the keypoints will be drawn.
             positions: The positions at which the keypoints will be drawn.
             render_check: A function which determines whether the keypoints should be rendered.
             radius: The radius of the keypoints.
             pickable: Determines whether the keypoints are pickable.
         """
-        self.app = app
+        self.project = project
         self.axes = axes
         self.positions = positions
         self.init_keypoints(radius, pickable)
@@ -142,7 +142,7 @@ class Keypoints:
         print("Drawing keypoints")
         for keypoint in self.keypoints:
             keypoint.set_center(self.positions[keypoint.index])
-            if self.app.current_keypoint == keypoint.index:
+            if self.project.current_keypoint == keypoint.index:
                 keypoint.set_edgecolor('black')
             else:
                 keypoint.set_edgecolor(keypoint.color)
