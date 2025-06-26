@@ -1,6 +1,4 @@
-from PyQt5.QtWidgets import QInputDialog, QMessageBox, QFormLayout, QMainWindow, QHBoxLayout, QVBoxLayout, QWidget, QPushButton, QLabel, QComboBox, QFileDialog
-import shutil
-from pathlib import Path
+from PyQt5.QtWidgets import QInputDialog, QMessageBox, QFormLayout, QMainWindow, QVBoxLayout, QWidget, QPushButton, QLabel, QComboBox, QFileDialog
 
 class Launcher(QMainWindow):
     def __init__(self, app):
@@ -10,29 +8,38 @@ class Launcher(QMainWindow):
         self.resize(800, 600)
         central_widget = QWidget(self)
         self.setCentralWidget(central_widget)
-        self.layout = QVBoxLayout(central_widget)
-        self.layout.addWidget(QLabel("ORPose Correction Tool"))
-        self.actions_layout = QFormLayout()
-        self.layout.addLayout(self.actions_layout)
-        self.video_select_button = QPushButton("Select Videos")
+        layout = QVBoxLayout(central_widget)
+        layout.addWidget(QLabel("ORPose Correction Tool"))
+        actions_layout = QFormLayout()
+        layout.addLayout(actions_layout)
+        self.add_create_section(actions_layout)
+        self.add_import_section(actions_layout)
+        self.add_open_section(actions_layout)
+
+    def add_create_section(self, actions_layout):
+        video_select_button = QPushButton("Select Videos")
         self.selected_videos = []
-        self.video_select_button.clicked.connect(self.handle_video_selection)
-        self.create_button = QPushButton("Create new labeling from videos")
-        self.create_button.clicked.connect(self.handle_create_labeling)
-        self.actions_layout.addRow(self.video_select_button, self.create_button)
-        self.labeling_select_button = QPushButton("Select labeling files")
+        video_select_button.clicked.connect(self.handle_video_selection)
+        create_button = QPushButton("Create new labeling from videos")
+        create_button.clicked.connect(self.handle_create_labeling)
+        actions_layout.addRow(video_select_button, create_button)
+
+    def add_import_section(self, actions_layout):
+        labeling_select_button = QPushButton("Select labeling files")
         self.selected_labelings = []
-        self.labeling_select_button.clicked.connect(self.handle_labeling_selection)
-        self.import_button = QPushButton("Import labeling for correction")
-        self.import_button.clicked.connect(self.handle_import_labeling)
-        self.actions_layout.addRow(self.labeling_select_button, self.import_button)
+        labeling_select_button.clicked.connect(self.handle_labeling_selection)
+        import_button = QPushButton("Import labeling for correction")
+        import_button.clicked.connect(self.handle_import_labeling)
+        actions_layout.addRow(labeling_select_button, import_button)
+
+    def add_open_section(self, actions_layout):
         self.project_selector = QComboBox()
         self.projects = self.app.get_project_names()
         self.project_selector.addItems(self.projects)
         self.project_selector.currentIndexChanged.connect(self.handle_project_selection)
         self.open = QPushButton("Open...")
         self.open.clicked.connect(self.handle_open)
-        self.actions_layout.addRow(self.project_selector, self.open)
+        actions_layout.addRow(self.project_selector, self.open)
 
     def handle_video_selection(self):
         selected_videos, ok = QFileDialog.getOpenFileNames(self, "Select Videos", "", "<camera_name>.mp4 (*.mp4)")
@@ -49,12 +56,8 @@ class Launcher(QMainWindow):
         persons, ok = QInputDialog.getInt(self, "Create Labeling", "Enter the number of persons:")
         if not ok or persons <= 1:
             persons = 1
-        (Path("inputs") / name).mkdir(parents=True, exist_ok=True)
-        for file in self.selected_videos:
-            file = Path(file)
-            shutil.copy(file, Path("inputs") / name / file.name)
-        for person in range(persons):
-            (Path("output_3d") / f"{name}_{person}").mkdir(parents=True, exist_ok=True)
+        self.selected_labelings = [None for _ in range(persons)]
+        self.app.create_project(name, self.selected_videos, self.selected_labelings)
         self.hide()
         self.app.open_project(name)
 
@@ -73,13 +76,7 @@ class Launcher(QMainWindow):
         name, ok = QInputDialog.getText(self, "Import Labeling", "Enter the dataset name:")
         if not ok:
             return
-        (Path("inputs") / name).mkdir(parents=True, exist_ok=True)
-        for file in self.selected_videos:
-            file = Path(file)
-            shutil.copy(file, Path("inputs") / name / file.name)
-        for person, file in enumerate(self.selected_labelings):
-            (Path("output_3d") / f"{name}_{person}").mkdir(parents=True, exist_ok=True)
-            shutil.copy(file, Path("output_3d") / f"{name}_{person}" / "hand_poses_2d.npz")
+        self.app.create_project(name, self.selected_videos, self.selected_labelings)
         self.hide()
         self.app.open_project(name)
 

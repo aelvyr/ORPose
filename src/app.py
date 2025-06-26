@@ -5,6 +5,8 @@ from ui import ProjectWindow
 from ui.launcher import Launcher
 import sys
 import os
+from pathlib import Path
+import shutil
 
 class App(QApplication):
     def __init__(self):
@@ -34,6 +36,18 @@ class App(QApplication):
             if name not in projects:
                 projects.append(name)
         return projects
+
+    def create_project(self, name, videos, persons):
+        inputs = Path("inputs") / name
+        inputs.mkdir(parents=True, exist_ok=True)
+        for file in videos:
+            file = Path(file)
+            shutil.copy(file, inputs / file.name)
+        for person, file in enumerate(persons):
+            person_path = Path("output_3d") / f"{name}_{person}"
+            person_path.mkdir(parents=True, exist_ok=True)
+            if file is not None:
+                shutil.copy(file, person_path / "hand_poses_2d.npz")
 
     def parse_args(self):
         parser = argparse.ArgumentParser(description='A tool for manually labeling hand poses')
