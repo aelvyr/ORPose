@@ -63,7 +63,7 @@ class PoseData:
         self.data[idx] = {}
         for camera in self.available_cameras():
             self.data[idx][camera] = []
-            video = cv.VideoCapture(Path("inputs") / self.name / f"{camera}.MP4")
+            video = cv.VideoCapture(Path("inputs") / self.name / f"{camera}.mp4")
             frames = int(video.get(cv.CAP_PROP_FRAME_COUNT))
             for i in range(0,frames):
                 self.data[idx][camera].append([])
