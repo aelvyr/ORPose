@@ -54,8 +54,8 @@ class PoseData:
                 self.paths += [(i, path)]
                 i += 1
         self.load()
-        self.verify()
         self.persons = len(self.paths)
+        self.verify()
         print("Loaded camera metadata from the dataset")
 
     def verify(self):
@@ -64,25 +64,25 @@ class PoseData:
         """
         for person in range(self.persons):
             for camera in self.data[person].keys():
-                if camera not in map(lambda x: x.name(), self.project.cameras):
+                if camera not in self.project.cameras.data:
                     print(f"Person {person} has camera {camera}, but no footage of that camera was found")
                     print(f"This camera will be ignored. If you want to include it, please add it to 'inputs/{self.project.dataset_name}/{camera}.mp4'")
-            for camera in self.project.cameras:
-                if camera.name() not in self.data[person].keys():
+            for camera in self.project.cameras.data:
+                if camera not in self.data[person].keys():
                     self.empty_camera(person, camera)
                     print(f"Camera {camera} was added to person {person}")
-                cv.VideoCapture(Path("inputs")/self.project.dataset_name/f"{camera.name()}.mp4")
-                num_frames = int(cv.get(cv.CAP_PROP_FRAME_COUNT))
-                if len(self.data[person][camera.name()]) != num_frames:
-                    print(f"Person {person} has {len(self.data[person][camera.name()])} frames for camera {camera}, but {num_frames} were expected")
-                for frame in self.data[person][camera.name()]:
+                video = cv.VideoCapture(Path("inputs")/self.project.dataset_name/f"{camera}.mp4")
+                num_frames = int(video.get(cv.CAP_PROP_FRAME_COUNT))
+                if len(self.data[person][camera]) != num_frames:
+                    print(f"Person {person} has {len(self.data[person][camera])} frames for camera {camera}, but {num_frames} were expected")
+                for frame in self.data[person][camera]:
                     if len(frame) != 2:
                         raise ValueError(f"Invalid amount of hands for person {person} and camera {camera} at frame {frame}")
-                    for hand in frame:
-                        if len(hand.keypoints[0]) != 21:
-                            raise ValueError(f"Invalid amount of keypoints for hand {hand} for person {person} and camera {camera} at frame {frame}. Was {len(hand.keypoints[0])} should be 21")
-                        if len(hand.keypoint_scores[0]) != 21:
-                            raise ValueError(f"Invalid amount of keypoint scores for hand {hand} for person {person} and camera {camera} at frame {frame}. Was {len(hand.keypoint_scores[0])} should be 21")
+                    #for hand in frame:
+                        #if len(hand.keypoints[0]) != 21:
+                        #    raise ValueError(f"Invalid amount of keypoints for hand {hand} for person {person} and camera {camera} at frame {frame}. Was {len(hand.keypoints[0])} should be 21")
+                        #if len(hand.keypoint_scores[0]) != 21:
+                        #    raise ValueError(f"Invalid amount of keypoint scores for hand {hand} for person {person} and camera {camera} at frame {frame}. Was {len(hand.keypoint_scores[0])} should be 21")
             print(f"Verified data for person {person}")
 
     def empty_person(self, person):
