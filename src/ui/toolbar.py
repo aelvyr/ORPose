@@ -41,7 +41,6 @@ class Toolbar(QToolBar):
 
         Args:
             project (Project): The project instance.
-            parent (QWidget): The parent widget.
         """
         super().__init__(parent)
 

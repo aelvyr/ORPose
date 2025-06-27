@@ -3,16 +3,20 @@ This module contains all the functionality related to interfacing with the under
 """
 
 import numpy as np # Used to read and write the pose data format
-from pathlib import Path
 import cv2 as cv
+from pathlib import Path
+from camera import Camera
 
-from camera import Camera, Cameras # Used to handle camera metadata
+class HandData:
+    """
+    This class represents a hand pose in a 2D image.
 
-class FrameData:
-    def __init__(self, frame, camera, person):
-        self.frame = frame
-        self.camera = camera
-        self.person = person
+    It contains the following attributes:
+    - keypoints: A 2D array of shape (21, 2) containing the 2D coordinates of the hand keypoints.
+    - keypoint_scores: A 1D array of shape (21,) containing the confidence scores of the hand keypoints.
+    for legacy reasons (ask valery) there is an array of length 1 wrapping the keypoints and scores.
+    """
+    def __init__(self):
         self.keypoints = np.zeros((1, 21, 2))
         self.keypoint_scores = np.zeros((1, 21))
 
@@ -22,57 +26,95 @@ class PoseData:
 
     It contains the following attributes:
     - name: The name of the dataset.
-    - path: The path to the dataset.
+    - paths: The paths to the datasets of each person.
     - poses: A dictionary containing the 2D hand poses for each camera.
     - cameras: A Cameras object containing information about the cameras used in the dataset.
+    - persons: the number of persons in the dataset.
     """
-    def __init__(self, dataset_name: str):
+    def __init__(self, project):
         """
         Initialize the PoseData object with the data specified in the dataset files located in "output_3d/dataset_name/".
 
         Args:
             dataset_name (str): The name of the dataset.
         """
-        self.name = dataset_name
+        self.name = project.dataset_name
+        self.project = project
         output_3d = Path("output_3d")
-        legacy = output_3d / dataset_name
+        legacy = output_3d / project.dataset_name
         if legacy.exists():
             self.paths = [(0, legacy)]
         else:
             i = 0
             self.paths = []
             while True:
-                path = output_3d / f"{dataset_name}_{i}"
+                path = output_3d / f"{project.dataset_name}_{i}"
                 if not path.exists():
                     break
                 self.paths += [(i, path)]
                 i += 1
         self.load()
-        self.cameras = Cameras(dataset_name, self.available_cameras())
+        self.verify()
         self.persons = len(self.paths)
-        print(f"Loaded camera metadata from the dataset")
+        print("Loaded camera metadata from the dataset")
 
-    def available_cameras(self):
-        video_path = Path("inputs") / self.name
-        cameras = []
-        for camera_file in video_path.iterdir():
-            cameras += [camera_file.stem]
-        return cameras
+    def verify(self):
+        """
+        Verifies the datasets integrity.
+        """
+        for person in range(self.persons):
+            for camera in self.data[person].keys():
+                if camera not in map(lambda x: x.name(), self.project.cameras):
+                    print(f"Person {person} has camera {camera}, but no footage of that camera was found")
+                    print(f"This camera will be ignored. If you want to include it, please add it to 'inputs/{self.project.dataset_name}/{camera}.mp4'")
+            for camera in self.project.cameras:
+                if camera.name() not in self.data[person].keys():
+                    self.empty_camera(person, camera)
+                    print(f"Camera {camera} was added to person {person}")
+                cv.VideoCapture(Path("inputs")/self.project.dataset_name/f"{camera.name()}.mp4")
+                num_frames = int(cv.get(cv.CAP_PROP_FRAME_COUNT))
+                if len(self.data[person][camera.name()]) != num_frames:
+                    print(f"Person {person} has {len(self.data[person][camera.name()])} frames for camera {camera}, but {num_frames} were expected")
+                for frame in self.data[person][camera.name()]:
+                    if len(frame) != 2:
+                        raise ValueError(f"Invalid amount of hands for person {person} and camera {camera} at frame {frame}")
+                    for hand in frame:
+                        if len(hand.keypoints[0]) != 21:
+                            raise ValueError(f"Invalid amount of keypoints for hand {hand} for person {person} and camera {camera} at frame {frame}. Was {len(hand.keypoints[0])} should be 21")
+                        if len(hand.keypoint_scores[0]) != 21:
+                            raise ValueError(f"Invalid amount of keypoint scores for hand {hand} for person {person} and camera {camera} at frame {frame}. Was {len(hand.keypoint_scores[0])} should be 21")
+            print(f"Verified data for person {person}")
 
-    def empty_data(self, idx):
-        self.data[idx] = {}
-        for camera in self.available_cameras():
-            self.data[idx][camera] = []
-            video = cv.VideoCapture(Path("inputs") / self.name / f"{camera}.mp4")
-            frames = int(video.get(cv.CAP_PROP_FRAME_COUNT))
-            for i in range(0,frames):
-                self.data[idx][camera].append([])
-                for j in range(2):
-                    self.data[idx][camera][i].append(FrameData(i, camera, idx))
-                    for k in range(21):
-                        self.data[idx][camera][i][j].keypoints[0, k] = (0,0)
-                        self.data[idx][camera][i][j].keypoint_scores[0, k] = 0
-            print(f"Initialized empty data for person {idx}")
+    def empty_person(self, person):
+        """
+        Initializes the data for a person who is missing data.
+
+        Args:
+            person (int): The index of the person.
+        """
+        self.data[person] = {}
+        for camera in self.project.cameras:
+            self.empty_camera(person, camera.name())
+        print(f"Initialized empty data for person {person}")
+
+    def empty_camera(self, person, camera):
+        """
+        Initializes the data for a camera for a person which is missing data.
+
+        Args:
+            person (int): The index of the person.
+            camera (str): The name of the camera.
+        """
+        self.data[person][camera] = []
+        video = cv.VideoCapture(Path("inputs") / self.name / f"{camera}.mp4")
+        frames = int(video.get(cv.CAP_PROP_FRAME_COUNT))
+        for i in range(0,frames):
+            self.data[person][camera].append([])
+            for j in range(2):
+                self.data[person][camera][i].append(HandData())
+                for k in range(21):
+                    self.data[person][camera][i][j].keypoints[0, k] = (0,0)
+                    self.data[person][camera][i][j].keypoint_scores[0, k] = 0
 
     def load(self):
         """
@@ -83,7 +125,7 @@ class PoseData:
             path = path / "hand_poses_2d.npz"
             self.data.append({})
             if not path.exists():
-                self.empty_data(idx)
+                self.empty_person(idx)
                 continue
             self.data[idx] = np.load(path, allow_pickle=True)["poses_2d"].item()
             print(f"Loaded pose data from {path}")

@@ -7,6 +7,10 @@ from ui.canvas import Canvas
 class ProjectWindow(QMainWindow):
     """
     Main window of the application.
+
+    It contains the following attributes:
+        - toolbar: Toolbar instance
+        - canvas: Canvas instance
     """
     def __init__(self, project):
         super().__init__()

@@ -1,21 +1,22 @@
-from PyQt5.QtWidgets import QApplication
-import sys
-import argparse
-
+from pathlib import Path
 from pose import PoseData
 from ui import ProjectWindow
+from camera import Cameras
 
 class Project:
     """
-    This class contains the main application logic.
+    This class is responsible for the main application logic, since that is working on a project.
+    It provides functions for performing all actions you can perform on the project and makes sure all other components are updated accordingly.
     """
     def __init__(self, app, dataset_name):
         """
         Initialize the application for the given dataset.
         """
         self.app = app
+        self.dataset_name = dataset_name
+        self.cameras = Cameras(dataset_name, self.available_cameras())
         self.dataset = PoseData(dataset_name)
-        self.current_camera = self.dataset.cameras.get(0)
+        self.current_camera = self.cameras.get(0)
         self.current_hand = 0
         self.current_keypoint = 0
         self.keypoint_advance = 0
@@ -24,11 +25,21 @@ class Project:
         self.keypoints_hidden = False
         self.window = ProjectWindow(self)
 
+    def available_cameras(self):
+        """
+        Return a list of available cameras for the current project.
+        """
+        video_path = Path("inputs") / self.dataset_name
+        cameras = []
+        for camera_file in video_path.iterdir():
+            cameras += [camera_file.stem]
+        return cameras
+
     def change_camera(self, index):
         """
         Change the current camera to the one at the given index.
         """
-        self.current_camera = self.dataset.cameras.get(index)
+        self.current_camera = self.cameras.get(index)
         self.window.canvas.viewport.render_current_frame()
 
     def change_person(self, index):

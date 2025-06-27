@@ -1,11 +1,19 @@
 from PyQt5.QtWidgets import QInputDialog, QMessageBox, QFormLayout, QMainWindow, QVBoxLayout, QWidget, QPushButton, QLabel, QComboBox, QFileDialog
 
 class Launcher(QMainWindow):
+    """
+    The Launcher Window for ORPose Correction Tool
+    """
     def __init__(self, app):
+        """
+        Initialize the Launcher Window.
+
+        Args:
+            app (Application): The Application instance.
+        """
         super().__init__()
         self.app = app
         self.setWindowTitle("ORPose Correction Tool")
-        self.resize(800, 600)
         central_widget = QWidget(self)
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
@@ -43,11 +51,21 @@ class Launcher(QMainWindow):
         actions_layout.addRow(self.project_selector, self.open)
 
     def handle_video_selection(self):
+        """
+        Opens a file dialog to select videos.
+
+        Only intended for the behavior implementation of the Import button.
+        """
         selected_videos, ok = QFileDialog.getOpenFileNames(self, "Select Videos", "", "<camera_name>.mp4 (*.mp4)")
         if ok:
             self.selected_videos = selected_videos
 
     def handle_create_labeling(self):
+        """
+        Creates a new labeling project from videos only.
+
+        Only intended for the behavior implementation of the Create Labeling button.
+        """
         if self.selected_videos == []:
             QMessageBox.warning(self, "No videos selected", "Please select at least one video.")
             return
@@ -63,11 +81,21 @@ class Launcher(QMainWindow):
         self.app.open_project(name)
 
     def handle_labeling_selection(self):
+        """
+        Opens a file dialog to select labeling files.
+
+        Only intended for the behavior implementation of the Select Labeling button.
+        """
         selected_labelings, ok = QFileDialog.getOpenFileNames(self, "Select Labelings", "", "Per Person Dataset (*.npz)")
         if ok:
             self.selected_labelings = selected_labelings
 
     def handle_import_labeling(self):
+        """
+        Imports a new labeling project with the selected videos and labeling files.
+
+        Only intended for the behavior implementation of the import button.
+        """
         if self.selected_videos == []:
             QMessageBox.warning(self, "No videos selected", "Please select at least one video.")
             return
@@ -82,8 +110,18 @@ class Launcher(QMainWindow):
         self.app.open_project(name)
 
     def handle_project_selection(self, index):
+        """
+        Handles the selection of a project.
+
+        Only intended for the behavior implementation of the project selection.
+        """
         self.selected_project_idx = index
 
     def handle_open(self):
+        """
+        Opens the selected project.
+
+        Only intended for the behavior implementation of the open button.
+        """
         self.hide()
         self.app.open_project(self.projects[self.selected_project_idx])

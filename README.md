@@ -16,14 +16,21 @@ pip install -r requirements.txt
 
 ### Opening a dataset
 
-You will need to put your pose data in to the `output_3d/<dataset_name>` directory with the name `hand_poses_2d.npz`.
-And the videos in the `inputs/<dataset_name>` directory with the name `<camera_name>.MP4`.
+When you start the application, you will be greeted with the launcher.
+From there you have three options:
 
-Then you can open the dataset by executing the following command:
+#### Create a new dataset from video files only.
+To use this option you have to select some videos corresponding to the cameras which recorded the scene you want to label.
+Then you can click on the "Create new labeling from videos" button.
+Afterwards you will be prompted to give the project a name and specify how many people you want to label.
 
-```
-python3 src/app.py <dataset_name>
-```
+#### Import a dataset from video files and pose label data.
+If you already have pose label data which you want to correct, you first also need to select some videos corresponding to the cameras which recorded the scene you want to correct the labeling for.
+And then you should also select the labeling data you want to correct before you can import click on the "Import labeling for correction data" button to import the data.
+Afterwards it will prompt you to give the project a name.
+
+#### Open an existing project.
+If you already have a dataset you are working on, you can select it in the dropdown in the bottom left corner and then click on the "Open..." button.
 
 ### Selecting a person
 
