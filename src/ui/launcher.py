@@ -36,6 +36,7 @@ class Launcher(QMainWindow):
         self.project_selector = QComboBox()
         self.projects = self.app.get_project_names()
         self.project_selector.addItems(self.projects)
+        self.selected_project_idx = 0
         self.project_selector.currentIndexChanged.connect(self.handle_project_selection)
         self.open = QPushButton("Open...")
         self.open.clicked.connect(self.handle_open)
