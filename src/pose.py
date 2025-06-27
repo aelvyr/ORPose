@@ -115,7 +115,7 @@ class PoseData:
         for i in range(0,frames):
             self.data[person][camera].append([])
             for j in range(2):
-                self.data[person][camera][i].append(HandData())
+                self.data[person][camera][i].append(FrameData(i, camera, person))
                 for k in range(21):
                     self.data[person][camera][i][j].keypoints[0, k] = (0,0)
                     self.data[person][camera][i][j].keypoint_scores[0, k] = 0
