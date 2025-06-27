@@ -32,6 +32,8 @@ Afterwards it will prompt you to give the project a name.
 #### Open an existing project.
 If you already have a dataset you are working on, you can select it in the dropdown in the bottom left corner and then click on the "Open..." button.
 
+You can also opt to open an existing project from the command line by specifying its name as the first argument on startup.
+
 ### Selecting a person
 
 Skip this step if there is only one person in the dataset, since the buttons regarding this will be hidden.
