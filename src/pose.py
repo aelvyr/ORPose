@@ -93,7 +93,7 @@ class PoseData:
             person (int): The index of the person.
         """
         self.data[person] = {}
-        for camera in self.project.cameras:
+        for camera in self.project.cameras.data:
             self.empty_camera(person, camera.name())
         print(f"Initialized empty data for person {person}")
 
