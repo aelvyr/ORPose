@@ -14,6 +14,7 @@ class ProjectWindow(QMainWindow):
     """
     def __init__(self, project):
         super().__init__()
+        self.resize(1520, 900)
         self.toolbar = Toolbar(project, parent=self)
         self.addToolBar(self.toolbar)
         self.canvas = Canvas(project)

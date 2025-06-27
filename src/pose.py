@@ -7,7 +7,7 @@ import cv2 as cv
 from pathlib import Path
 from camera import Camera
 
-class HandData:
+class FrameData:
     """
     This class represents a hand pose in a 2D image.
 
@@ -16,7 +16,10 @@ class HandData:
     - keypoint_scores: A 1D array of shape (21,) containing the confidence scores of the hand keypoints.
     for legacy reasons (ask valery) there is an array of length 1 wrapping the keypoints and scores.
     """
-    def __init__(self):
+    def __init__(self, frame, camera, person):
+        self.frame = frame
+        self.camera = camera
+        self.person = person
         self.keypoints = np.zeros((1, 21, 2))
         self.keypoint_scores = np.zeros((1, 21))
 
