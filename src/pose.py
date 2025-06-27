@@ -10,6 +10,7 @@ from camera import Camera
 class FrameData:
     """
     This class represents a hand pose in a 2D image.
+    DO NOT EDIT THIS CLASS it will break backwards compatibility
 
     It contains the following attributes:
     - keypoints: A 2D array of shape (21, 2) containing the 2D coordinates of the hand keypoints.
