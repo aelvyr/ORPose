@@ -64,6 +64,11 @@ class Viewport(Keypoints):
         self.positions = self.project.dataset.get_pose(self.project.current_person, self.project.current_camera, self.project.current_hand).get_positions()
         super().draw()
 
+    def render_camera_change(self):
+        self.img_display.remove()
+        self.img_display = self.axes.imshow(self.project.current_camera.get_current_frame())
+        self.render_current_frame()
+
     def render_current_frame(self):
         """
         Renders the current frame and (re)draws the keypoints.

@@ -40,7 +40,7 @@ class Project:
         Change the current camera to the one at the given index.
         """
         self.current_camera = self.cameras.get(index)
-        self.window.canvas.viewport.render_current_frame()
+        self.window.canvas.viewport.render_camera_change()
 
     def change_person(self, index):
         """
