@@ -166,6 +166,14 @@ class PoseData:
             self.data[person][camera.name()][frame][0] = self.data[person][camera.name()][frame][1]
             self.data[person][camera.name()][frame][1] = tmp
 
+    def flip_person(self, a, b):
+        """
+        Flips the data of the two people.
+        """
+        tmp = self.data[a]
+        self.data[a] = self.data[b]
+        self.data[b] = tmp
+
 class Pose:
     """
     This class is an abstraction over the raw pose data,

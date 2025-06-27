@@ -154,3 +154,7 @@ class Project:
         """
         self.dataset.flip_hands(self.current_person, self.current_camera)
         self.window.canvas.viewport.draw()
+
+    def swap_people(self, other):
+        self.dataset.flip_person(self.current_person, other)
+        self.window.canvas.viewport.draw()

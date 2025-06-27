@@ -72,7 +72,7 @@ class Launcher(QMainWindow):
         name, ok = QInputDialog.getText(self, "Create Labeling", "Enter the dataset name:")
         if not ok:
             return
-        persons, ok = QInputDialog.getInt(self, "Create Labeling", "Enter the number of persons:")
+        persons, ok = QInputDialog.getInt(self, "Create Labeling", "Enter the number of persons:", min=1)
         if not ok or persons <= 1:
             persons = 1
         self.selected_labelings = [None for _ in range(persons)]

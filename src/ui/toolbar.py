@@ -1,5 +1,5 @@
 from enum import Enum
-from PyQt5.QtWidgets import QToolBar, QLabel, QComboBox, QAction, QActionGroup, QSlider
+from PyQt5.QtWidgets import QToolBar, QLabel, QComboBox, QAction, QActionGroup, QSlider, QInputDialog
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt
 
@@ -57,6 +57,7 @@ class Toolbar(QToolBar):
         self.add_label("Data Options")
         self.add_camera_selector()
         self.add_person_selector()
+        self.add_person_flip_button()
         self.add_hand_selector()
         self.add_flip_side_button()
         self.add_save_button()
@@ -102,6 +103,14 @@ class Toolbar(QToolBar):
             self.person_selector.addItem(str(person))
         self.person_selector.currentIndexChanged.connect(self.project.change_person)
         self.addWidget(self.person_selector)
+
+    def add_person_flip_button(self):
+        if (self.project.dataset.persons <= 1):
+            return
+        self.person_flip_button = QAction(QIcon("icon/flip.svg"), "flips person", self.parentWidget())
+        self.person_flip_button.setStatusTip("Flips the data from one person to the other")
+        self.person_flip_button.triggered.connect(self.swap_people)
+        self.addAction(self.person_flip_button)
 
     def add_hand_selector(self):
         self.add_label("Hand:")
@@ -240,6 +249,11 @@ class Toolbar(QToolBar):
         label = QLabel(text)
         label.setMargin(5)
         self.addWidget(label)
+
+    def swap_people(self, other):
+        other, ok = QInputDialog.getInt(self, "Swap People", "Enter the ID of the person to swap with:", min=0, max=self.project.dataset.persons-1)
+        if ok:
+            self.project.swap_people(other)
 
     def change_mode(self, mode):
         """
