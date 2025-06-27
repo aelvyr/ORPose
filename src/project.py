@@ -15,7 +15,7 @@ class Project:
         self.app = app
         self.dataset_name = dataset_name
         self.cameras = Cameras(dataset_name, self.available_cameras())
-        self.dataset = PoseData(dataset_name)
+        self.dataset = PoseData(self)
         self.current_camera = self.cameras.get(0)
         self.current_hand = 0
         self.current_keypoint = 0
