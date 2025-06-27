@@ -94,7 +94,7 @@ class PoseData:
         """
         self.data[person] = {}
         for camera in self.project.cameras.data:
-            self.empty_camera(person, camera.name())
+            self.empty_camera(person, camera)
         print(f"Initialized empty data for person {person}")
 
     def empty_camera(self, person, camera):
