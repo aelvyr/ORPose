@@ -166,13 +166,18 @@ class PoseData:
             self.data[person][camera.name()][frame][0] = self.data[person][camera.name()][frame][1]
             self.data[person][camera.name()][frame][1] = tmp
 
-    def flip_person(self, a, b):
+    def flip_person(self, a, b, camera: Camera):
         """
-        Flips the data of the two people.
+        Swaps all hand data (both hands) between person a and person b,
+        restricted to the specified camera only.
         """
-        tmp = self.data[a]
-        self.data[a] = self.data[b]
-        self.data[b] = tmp
+        camera_name = camera.name()
+        for frame in range(camera.frame_count):
+            # Swap the entire frame data (both hands) between persons
+            self.data[a][camera_name][frame], self.data[b][camera_name][frame] = \
+                self.data[b][camera_name][frame], self.data[a][camera_name][frame]
+
+
 
 class Pose:
     """

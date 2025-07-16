@@ -143,7 +143,8 @@ class Keypoints:
         for keypoint in self.keypoints:
             keypoint.set_center(self.positions[keypoint.index])
             if self.project.current_keypoint == keypoint.index:
-                keypoint.set_edgecolor('black')
+                edge_color = 'white' if self.project.dark_mode else 'black'
+                keypoint.set_edgecolor(edge_color)
             else:
                 keypoint.set_edgecolor(keypoint.color)
             if self.should_keypoint_render(keypoint):

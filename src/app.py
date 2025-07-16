@@ -74,14 +74,14 @@ class App(QApplication):
         inputs.mkdir(parents=True, exist_ok=True)
         for file in videos:
             file = Path(file)
-            if file == inputs / file.name:
+            if file.resolve() == (inputs / file.name).resolve():
                 continue
             shutil.copy(file, inputs / file.name)
         for person, file in enumerate(persons):
             person_path = Path("output_3d") / f"{name}_{person}"
             person_path.mkdir(parents=True, exist_ok=True)
             if file is not None:
-                if file == person_path / "hand_poses_2d.npz":
+                if file.resolve() == (person_path / "hand_poses_2d.npz").resolve():
                     continue
                 shutil.copy(file, person_path / "hand_poses_2d.npz")
 

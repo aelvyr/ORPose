@@ -13,6 +13,7 @@ class Project:
         Initialize the application for the given dataset.
         """
         self.app = app
+        self.dark_mode = False
         self.dataset_name = dataset_name
         self.cameras = Cameras(dataset_name, self.available_cameras())
         self.dataset = PoseData(self)
@@ -24,6 +25,7 @@ class Project:
         self.frame_step = 30
         self.keypoints_hidden = False
         self.window = ProjectWindow(self)
+        
 
     def available_cameras(self):
         """
@@ -156,5 +158,5 @@ class Project:
         self.window.canvas.viewport.draw()
 
     def swap_people(self, other):
-        self.dataset.flip_person(self.current_person, other)
+        self.dataset.flip_person(self.current_person, other, camera=self.current_camera)
         self.window.canvas.viewport.draw()

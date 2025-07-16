@@ -52,6 +52,9 @@ class Toolbar(QToolBar):
         self.add_canvas_tools()
         self.addSeparator()
         self.add_keypoint_controls()
+        self.add_dark_mode_toggle()
+
+
 
     def add_data_options(self):
         self.add_label("Data Options")
@@ -271,3 +274,39 @@ class Toolbar(QToolBar):
         Sets the amount the keypoint advances when a keypoint is placed based on the index into the list of advance levels.
         """
         self.project.keypoint_advance = int(self.auto_advance_options[idx])
+
+    
+    def add_dark_mode_toggle(self):
+        self.dark_mode_enabled = False
+        self.dark_mode_action = QAction(QIcon("icon/moon.svg"), "Toggle Dark Mode", self.parentWidget())
+        self.dark_mode_action.setStatusTip("Toggle between light and dark mode")
+        self.dark_mode_action.setCheckable(True)
+        self.dark_mode_action.triggered.connect(self.toggle_dark_mode)
+        self.addAction(self.dark_mode_action)
+
+    def toggle_dark_mode(self):
+        self.dark_mode_enabled = not self.dark_mode_enabled
+
+        self.project.dark_mode = self.dark_mode_enabled
+        
+        icon_path = "icon/sun.svg" if self.dark_mode_enabled else "icon/moon.svg"
+        self.dark_mode_action.setIcon(QIcon(icon_path))
+
+        fig = self.project.window.canvas.figure
+        ax1 = self.project.window.canvas.viewport.axes
+        ax2 = self.project.window.canvas.keypoint_picker.axes
+
+        bg_color = 'black' if self.dark_mode_enabled else 'white'
+        fg_color = 'white' if self.dark_mode_enabled else 'black'
+
+        fig.patch.set_facecolor(bg_color)
+        for ax in [ax1, ax2]:
+            ax.set_facecolor(bg_color)
+            ax.tick_params(colors=fg_color)
+            ax.xaxis.label.set_color(fg_color)
+            ax.yaxis.label.set_color(fg_color)
+            ax.title.set_color(fg_color)
+            for spine in ax.spines.values():
+                spine.set_color(fg_color)
+
+        self.project.window.canvas.draw()
