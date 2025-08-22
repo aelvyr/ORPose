@@ -117,6 +117,10 @@ def initialize_hand_pose_for_next_frame(current_hand_pose, next_body_pose, prev_
     
     # Move hand to new wrist position
     initialized_hand = hand_rotated + current_hand_pose[0] + wrist_diff
+
+    if np.isnan(initialized_hand).any():
+        print("Warning: NaN detected in initialized hand pose. Returning current hand pose.")
+        return current_hand_pose
     
     return initialized_hand
 

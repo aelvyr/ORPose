@@ -11,5 +11,7 @@ bboxes/
 checkpoints/
 configs/
 camera_poses/
+vector_plots/
+labeled_poses/
 
 __pycache__/

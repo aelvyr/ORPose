@@ -248,7 +248,8 @@ def display_frame(frame):
 
 def process_and_visualize_poses(video_path, tracks, output_dir, poses_3d_body=None, camera_matrices=None, 
                              camera_intrinsics=None, camera_extrinsics=None, distortion_coeffs=None,
-                             hide_legs=False):
+                             hide_legs=False, create_label_poses=False, multi_person=False, person_id=None):
+    from helpers.predictors import estimate_pose
     """Process and visualize body and hand poses"""
     cap = cv2.VideoCapture(video_path)
     video_name = os.path.splitext(os.path.basename(video_path))[0]
@@ -266,38 +267,78 @@ def process_and_visualize_poses(video_path, tracks, output_dir, poses_3d_body=No
             break
 
         # Project 3D poses to 2D for this camera and frame
-        if poses_3d_body is not None and frame_idx < len(poses_3d_body):
-            pose_3d = poses_3d_body[frame_idx]
-            # Get camera parameters for this video
-            cam_name = video_name.split('_')[0]  # Extract camera name from video name
-            if cam_name in camera_matrices:                
-                cam_intrinsics = camera_intrinsics[cam_name].reshape(3,3)
-                cam_extrinsics = camera_extrinsics[cam_name]
-                cam_distortion = distortion_coeffs[cam_name]
-                
-                points_2d = project_points_safe(pose_3d, cam_intrinsics, cam_extrinsics[0], cam_extrinsics[1], cam_distortion)
-                
-                # Create a body pose instance with the projected points
-                body_pose = type('', (), {})()  # Create empty object
-                body_pose.keypoints = np.array(points_2d).reshape(-1, 2)
-                body_pose.keypoint_scores = np.ones(len(points_2d))  # Assuming all points are valid
-                
+        if poses_3d_body is not None:
+            # Handle multi-person mode
+            if multi_person:
+                if person_id is None:
+                    raise ValueError("person_id must be provided in multi-person mode")
+                if person_id in poses_3d_body and frame_idx < len(poses_3d_body[person_id]):
+                    pose_3d = poses_3d_body[person_id][frame_idx]
+                else:
+                    pose_3d = None
+            else:
+                # Single-person mode
+                if frame_idx < len(poses_3d_body):
+                    pose_3d = poses_3d_body[frame_idx]
+                else:
+                    pose_3d = None
+            
+            if pose_3d is not None:
+                # Get camera parameters for this video
+                cam_name = video_name.split('_')[0]  # Extract camera name from video name
+                if cam_name in camera_matrices:                
+                    cam_intrinsics = camera_intrinsics[cam_name].reshape(3,3)
+                    cam_extrinsics = camera_extrinsics[cam_name]
+                    cam_distortion = distortion_coeffs[cam_name]
+                    
+                    points_2d = project_points_safe(pose_3d, cam_intrinsics, cam_extrinsics[0], cam_extrinsics[1], cam_distortion)
+                    
+                    # Create a body pose instance with the projected points
+                    body_pose = type('', (), {})()  # Create empty object
+                    body_pose.keypoints = np.array(points_2d).reshape(-1, 2)
+                    body_pose.keypoint_scores = np.ones(len(points_2d))  # Assuming all points are valid
+                    
+                else:
+                    body_pose = None
             else:
                 body_pose = None
         else:
             body_pose = None
 
         hand_pose_2d = {}
-        # Estimate hand poses for tracked hands
+        # Draw bounding boxes and estimate hand poses for tracked hands
         if frame_idx in tracks:
             for hand_id, box in tracks[frame_idx].items():
-                from helpers.predictors import estimate_pose
+                # Draw bounding box
+                if len(box) == 4:
+                    x1, y1, x2, y2 = box[0], box[1], box[2], box[3]
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    # Add hand ID text above the box
+                    cv2.putText(frame, f'Hand {hand_id}', (x1, y1-10), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                
+                    # Estimate and draw hand pose
+                    hand_pose = estimate_pose(frame, box, pose_type='hand', show=False)
+                    if hand_pose is not None:
+                        draw_pose(frame, hand_pose, pose_type='hand')
+                        hand_pose_2d[hand_id] = hand_pose
+
+            if create_label_poses and 1 not in hand_pose_2d.keys():
+                # If no hand poses were detected, use a placeholder
+                box = np.array([0, 0, 0, 0])
                 hand_pose = estimate_pose(frame, box, pose_type='hand', show=False)
-                # Draw hand keypoints
                 if hand_pose is not None:
                     draw_pose(frame, hand_pose, pose_type='hand')
-                    hand_pose_2d[hand_id] = hand_pose
-            
+                    hand_pose_2d[1] = hand_pose
+
+            if create_label_poses and 0 not in hand_pose_2d.keys():
+                # If no hand poses were detected, use a placeholder
+                box = np.array([0, 0, 0, 0])
+                hand_pose = estimate_pose(frame, box, pose_type='hand', show=False)
+                if hand_pose is not None:
+                    draw_pose(frame, hand_pose, pose_type='hand')
+                    hand_pose_2d[0] = hand_pose
+
         hand_poses_2d.append(hand_pose_2d)
                     
         # Draw body keypoints
@@ -315,12 +356,12 @@ def process_and_visualize_poses(video_path, tracks, output_dir, poses_3d_body=No
 def create_reprojection_videos(poses_3d_body, hand_poses_3d_dict, camera_intrinsics, 
                      camera_extrinsics, distortion_coeffs, data_dir, output_dir, 
                      camera_angles=['gopro10', 'gopro5'], hide_legs=False,
-                     compare_viewpoints=False, hand_id_mapping=None):
+                     compare_viewpoints=False, hand_id_mapping=None, multi_person=False, person_id=None):
     """
     Create videos with 3D hand poses reprojected into 2D camera views from specified angles.
     
     Args:
-        poses_3d_body: Array of 3D body poses for each frame
+        poses_3d_body: Array of 3D body poses for each frame (or dict for multi-person)
         hand_poses_3d_dict: Dictionary mapping method names to arrays of 3D hand poses
         camera_intrinsics: Dictionary of camera intrinsic matrices
         camera_extrinsics: Dictionary of camera extrinsic parameters
@@ -332,6 +373,8 @@ def create_reprojection_videos(poses_3d_body, hand_poses_3d_dict, camera_intrins
         compare_viewpoints: If True, create videos comparing the same method across different viewpoints
                            If False (default), compare different methods for the same viewpoint
         hand_id_mapping: Optional mapping between hand object IDs and hand sides for viewpoint counting
+        multi_person: Whether using multi-person mode
+        person_id: Person ID for multi-person mode
     """
     # Check if specified camera angles exist
     available_cameras = []
@@ -415,19 +458,26 @@ def create_reprojection_videos(poses_3d_body, hand_poses_3d_dict, camera_intrins
                                         cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
                             
                             # Project 3D body pose to 2D
-                            if frame_idx < len(poses_3d_body) and poses_3d_body[frame_idx] is not None:
-                                if not np.isnan(poses_3d_body[frame_idx]).any():
-                                    body_2d = project_points_safe(poses_3d_body[frame_idx], cam_intrinsics, 
-                                                            cam_rotation, cam_translation, cam_distortion)
-                                    
-                                    # Create a dummy instance with the projected points for drawing
-                                    body_instance = type('', (), {
-                                        'keypoints': np.array(body_2d).reshape(1, -1, 2),
-                                        'keypoint_scores': np.ones((1, len(body_2d)))
-                                    })
-                                    
-                                    # Draw body pose
-                                    draw_pose(method_frame, body_instance, pose_type='body', hide_legs=hide_legs)
+                            body_pose_frame = None
+                            if multi_person:
+                                if person_id is not None and person_id in poses_3d_body and frame_idx < len(poses_3d_body[person_id]):
+                                    body_pose_frame = poses_3d_body[person_id][frame_idx]
+                            else:
+                                if frame_idx < len(poses_3d_body):
+                                    body_pose_frame = poses_3d_body[frame_idx]
+                            
+                            if body_pose_frame is not None and not np.isnan(body_pose_frame).any():
+                                body_2d = project_points_safe(body_pose_frame, cam_intrinsics, 
+                                                        cam_rotation, cam_translation, cam_distortion)
+                                
+                                # Create a dummy instance with the projected points for drawing
+                                body_instance = type('', (), {
+                                    'keypoints': np.array(body_2d).reshape(1, -1, 2),
+                                    'keypoint_scores': np.ones((1, len(body_2d)))
+                                })
+                                
+                                # Draw body pose
+                                draw_pose(method_frame, body_instance, pose_type='body', hide_legs=hide_legs)
                             
                             # Project 3D hand pose to 2D
                             if frame_idx < len(hand_poses_3d) and hand_poses_3d[frame_idx] is not None:
@@ -561,19 +611,26 @@ def create_reprojection_videos(poses_3d_body, hand_poses_3d_dict, camera_intrins
                                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
                             
                             # Project 3D body pose to 2D
-                            if frame_idx < len(poses_3d_body) and poses_3d_body[frame_idx] is not None:
-                                if not np.isnan(poses_3d_body[frame_idx]).any():
-                                    body_2d = project_points_safe(poses_3d_body[frame_idx], cam_intrinsics, 
-                                                            cam_rotation, cam_translation, cam_distortion)
-                                    
-                                    # Create a dummy instance with the projected points for drawing
-                                    body_instance = type('', (), {
-                                        'keypoints': np.array(body_2d).reshape(1, -1, 2),
-                                        'keypoint_scores': np.ones((1, len(body_2d)))
-                                    })
-                                    
-                                    # Draw body pose
-                                    draw_pose(method_frame, body_instance, pose_type='body', hide_legs=hide_legs)
+                            body_pose_frame = None
+                            if multi_person:
+                                if person_id is not None and person_id in poses_3d_body and frame_idx < len(poses_3d_body[person_id]):
+                                    body_pose_frame = poses_3d_body[person_id][frame_idx]
+                            else:
+                                if frame_idx < len(poses_3d_body):
+                                    body_pose_frame = poses_3d_body[frame_idx]
+                            
+                            if body_pose_frame is not None and not np.isnan(body_pose_frame).any():
+                                body_2d = project_points_safe(body_pose_frame, cam_intrinsics, 
+                                                        cam_rotation, cam_translation, cam_distortion)
+                                
+                                # Create a dummy instance with the projected points for drawing
+                                body_instance = type('', (), {
+                                    'keypoints': np.array(body_2d).reshape(1, -1, 2),
+                                    'keypoint_scores': np.ones((1, len(body_2d)))
+                                })
+                                
+                                # Draw body pose
+                                draw_pose(method_frame, body_instance, pose_type='body', hide_legs=hide_legs)
                             
                             # Project 3D hand pose to 2D
                             hand_3d = hand_poses_3d[frame_idx]

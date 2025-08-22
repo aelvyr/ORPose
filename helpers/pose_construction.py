@@ -1,16 +1,18 @@
 import cv2
 import numpy as np
-
+import os
+import json
+from itertools import combinations
 from scipy.optimize import minimize, least_squares
 from scipy.interpolate import interp1d
 from scipy.signal import savgol_filter
+from scipy.sparse import csr_matrix
+from scipy.sparse.csgraph import connected_components
+from collections import defaultdict
 from pycalib.calib import triangulate
 
 from helpers.definitions import *
 from helpers.camera import *
-
-import numpy as np
-import cv2
 
 # Import PyTorch for optimization
 try:
@@ -180,14 +182,19 @@ def interpolate_keypoints(keypoints):
 
 
 
-def initialize_pose_with_triangulation(poses_2d, camera_matrices, camera_intrinsics, camera_extrinsics, distortion_coeffs):
+def initialize_pose_with_triangulation(poses_2d, camera_matrices, camera_intrinsics, camera_extrinsics, distortion_coeffs, exhaustive_search=False):
     """
     Initialize the 3D pose using triangulation from 2D poses.
     
     Args:
         poses_2d: A list of 2D keypoints for multiple cameras and frames.
-                  poses_2d[frame][camera][keypoint] -> (x, y).
+                  poses_2d[frame][camera][keypoint] -> (x, y) or (x, y, confidence).
         camera_matrices: A list of 3x4 projection matrices (P = K[R|t]) for each camera.
+        camera_intrinsics: Camera intrinsic matrices for each camera.
+        camera_extrinsics: Camera extrinsic parameters for each camera.
+        distortion_coeffs: Camera distortion coefficients for each camera.
+        exhaustive_search: If True, performs exhaustive search to find the best triangulation
+                          using highest confidence keypoints and lowest reprojection error.
     
     Returns:
         An initial estimate of the 3D keypoints.
@@ -206,32 +213,102 @@ def initialize_pose_with_triangulation(poses_2d, camera_matrices, camera_intrins
             valid_2d_points = []
             projection_matrices = []
             cam_idxs = []
+            confidences = []
             
-            # Collect 2D points with confidence >= threshold
+            # Collect 2D points with their confidence scores
             for camera_idx in range(num_cameras):
                 if poses_2d[frame_idx][camera_idx][keypoint_idx] is not None:
-                    x, y = poses_2d[frame_idx][camera_idx][keypoint_idx]
+                    keypoint_data = poses_2d[frame_idx][camera_idx][keypoint_idx]
+                    
+                    # Handle both (x, y) and (x, y, confidence) formats
+                    if len(keypoint_data) == 2:
+                        x, y = keypoint_data
+                        confidence = 1.0  # Default confidence if not provided
+                    else:
+                        x, y, confidence = keypoint_data
+                    
                     x_undis, y_undis = undistort_point(x, y, camera_intrinsics[camera_idx].reshape(3,3), distortion_coeffs[camera_idx])
                     valid_2d_points.append([x_undis, y_undis])
                     projection_matrices.append(camera_matrices[camera_idx])
                     cam_idxs.append(camera_idx)
+                    confidences.append(confidence)
 
-
-            # print(valid_2d_points)
             # Only triangulate if we have at least two views for the keypoint
-            if len(valid_2d_points) == 2:
-                point_3dh : np.ndarray = cv2.triangulatePoints(np.array(projection_matrices)[0], np.array(projection_matrices)[1], np.array(valid_2d_points)[0], np.array(valid_2d_points)[1]).flatten()
-                point_3d = point_3dh[:3] / point_3dh[3]
-                # print(point_3dh)
-                # print(point_3d)
-                # print([project_point(point_3d, camera_intrinsics[idx].reshape(3,3), camera_extrinsics[idx][0], camera_extrinsics[idx][1], distortion_coeffs[idx], cam_name=cam_names[idx]) for idx in cam_idxs])
-                frame_3d_pose.append(point_3d)
-            elif len(valid_2d_points) >= 2:
-                # Triangulate
-                point_3d = triangulate(np.array(valid_2d_points), np.array(projection_matrices))[:3]
-                # print(point_3d)
-                # print([project_point(point_3d, camera_intrinsics[idx].reshape(3,3), camera_extrinsics[idx][0], camera_extrinsics[idx][1], distortion_coeffs[idx], cam_name=cam_names[idx]) for idx in cam_idxs])
-                frame_3d_pose.append(point_3d)
+            if len(valid_2d_points) >= 2:
+                if exhaustive_search and len(valid_2d_points) > 2:
+                    # Exhaustive search: try all combinations and pick the best one
+                    best_point_3d = None
+                    best_error = float('inf')
+                    
+                    # Sort cameras by confidence (highest first)
+                    confidence_indices = sorted(range(len(confidences)), key=lambda i: confidences[i], reverse=True)
+                    
+                    # Try combinations starting with highest confidence cameras
+                    from itertools import combinations
+                    for combo_size in range(2, min(len(valid_2d_points) + 1, 5)):  # Limit to max 4 cameras for efficiency
+                        for combo_indices in combinations(confidence_indices, combo_size):
+                            try:
+                                # Extract points for this combination
+                                combo_2d_points = [valid_2d_points[i] for i in combo_indices]
+                                combo_proj_matrices = [projection_matrices[i] for i in combo_indices]
+                                combo_cam_idxs = [cam_idxs[i] for i in combo_indices]
+                                
+                                # Triangulate
+                                if len(combo_2d_points) == 2:
+                                    point_3dh = cv2.triangulatePoints(
+                                        np.array(combo_proj_matrices[0]), 
+                                        np.array(combo_proj_matrices[1]), 
+                                        np.array(combo_2d_points[0]), 
+                                        np.array(combo_2d_points[1])
+                                    ).flatten()
+                                    point_3d = point_3dh[:3] / point_3dh[3]
+                                else:
+                                    point_3d = triangulate(np.array(combo_2d_points), np.array(combo_proj_matrices))[:3]
+                                
+                                # Calculate reprojection error for this combination
+                                total_error = 0
+                                for i, cam_idx in enumerate(combo_cam_idxs):
+                                    projected_2d = project_point(
+                                        point_3d,
+                                        camera_intrinsics[cam_idx].reshape(3, 3),
+                                        camera_extrinsics[cam_idx][0],
+                                        camera_extrinsics[cam_idx][1],
+                                        distortion_coeffs[cam_idx]
+                                    )
+                                    original_2d = [valid_2d_points[combo_indices[i]][0], valid_2d_points[combo_indices[i]][1]]
+                                    error = np.linalg.norm(np.array(projected_2d) - np.array(original_2d))
+                                    total_error += error
+                                
+                                avg_error = total_error / len(combo_cam_idxs)
+                                
+                                # Update best if this is better
+                                if avg_error < best_error:
+                                    best_error = avg_error
+                                    best_point_3d = point_3d
+                                    
+                            except Exception:
+                                continue
+                    
+                    if best_point_3d is not None:
+                        frame_3d_pose.append(best_point_3d)
+                    else:
+                        frame_3d_pose.append([None, None, None])
+                        
+                else:
+                    # Standard triangulation (use all available cameras)
+                    if len(valid_2d_points) == 2:
+                        point_3dh = cv2.triangulatePoints(
+                            np.array(projection_matrices)[0], 
+                            np.array(projection_matrices)[1], 
+                            np.array(valid_2d_points)[0], 
+                            np.array(valid_2d_points)[1]
+                        ).flatten()
+                        point_3d = point_3dh[:3] / point_3dh[3]
+                        frame_3d_pose.append(point_3d)
+                    else:
+                        # Triangulate using all cameras
+                        point_3d = triangulate(np.array(valid_2d_points), np.array(projection_matrices))[:3]
+                        frame_3d_pose.append(point_3d)
             else:
                 frame_3d_pose.append([None, None, None])  # Mark this keypoint as not initialized yet
         
@@ -239,21 +316,31 @@ def initialize_pose_with_triangulation(poses_2d, camera_matrices, camera_intrins
     
     return initial_poses_3d
 
-def mask_keypoints(poses_2d, confidence_threshold=0.5, min_cameras=2, num_keypoints=num_keypoints):
+def mask_keypoints(poses_2d, confidence_threshold=0.5, min_cameras=2, num_keypoints=num_keypoints, multi_person=False):
     """
     Masks keypoints based on confidence and camera visibility.
     Keypoints with confidence below the threshold or visible in fewer than min_cameras cameras will be masked.
     
     Args:
-        poses_2d: The 2D poses list in format poses_2d[frame][camera][keypoint] -> (x, y, confidence)
-        confidence_threshold: The confidence threshold below which keypoints will be masked.
+        poses_2d: The 2D poses list/dict in format:
+                 - Single person: poses_2d[frame][camera][keypoint] -> (x, y, confidence)
+                 - Multi-person: poses_2d[frame][camera][keypoint] -> (x, y, confidence) (for single person data)
+        confidence_threshold: The minimum confidence threshold below which keypoints will be masked.
         min_cameras: Minimum number of cameras in which a keypoint should be visible to be valid.
         num_keypoints: Number of keypoints in the 2d pose (default: num_keypoints from helpers.definitions)
+        multi_person: Whether this is multi-person data (affects return format, not processing)
     
     Returns:
-        Masked 2D poses: List of 2D poses where invalid keypoints are replaced with `None`.
+        Masked 2D poses: List/dict of 2D poses where invalid keypoints are replaced with `None`.
+                        Format matches input format.
     """
+    if multi_person:
+        # For multi-person, the input should already be a single person's data
+        # but we maintain the same processing logic
+        pass
+    
     num_frames = len(poses_2d)
+    num_cameras = len(poses_2d[0]) if num_frames > 0 else 0
 
     # Initialize masked poses (same structure as poses_2d, but with None for invalid keypoints)
     masked_poses = [[[None for _ in range(num_keypoints)] for _ in range(num_cameras)] for _ in range(num_frames)]
@@ -261,31 +348,31 @@ def mask_keypoints(poses_2d, confidence_threshold=0.5, min_cameras=2, num_keypoi
     # Loop through each frame and each keypoint
     for frame_idx in range(num_frames):
         for keypoint_idx in range(num_keypoints):
-            # Count how many cameras have valid keypoints for this frame and keypoint
-            visible_in_cameras = 0
-            valid_keypoint = [None] * num_cameras
+            camera_count = 0
+            valid_cameras = []
             
+            # Count how many cameras see this keypoint with sufficient confidence
             for camera_idx in range(num_cameras):
                 try:
                     x, y, confidence = poses_2d[frame_idx][camera_idx][keypoint_idx]
                     
-                    # Check if the keypoint has a valid confidence
+                    # Check if keypoint meets confidence threshold and basic validity
                     if confidence >= confidence_threshold and x > 0 and y > 0:
-                        valid_keypoint[camera_idx] = (x, y)
-                        visible_in_cameras += 1
+                        camera_count += 1
+                        valid_cameras.append(camera_idx)
                 except:
-                    print(f"poses[{frame_idx}][{camera_idx}][{keypoint_idx}] not found")
+                    continue
             
-            # Only keep the keypoint if it's visible in at least `min_cameras` cameras
-            if visible_in_cameras >= min_cameras:
-                for camera_idx in range(num_cameras):
-                    if valid_keypoint[camera_idx] is not None:
-                        masked_poses[frame_idx][camera_idx][keypoint_idx] = valid_keypoint[camera_idx]
+            # Only keep keypoints that are visible in at least min_cameras
+            if camera_count >= min_cameras:
+                for camera_idx in valid_cameras:
+                    x, y, confidence = poses_2d[frame_idx][camera_idx][keypoint_idx]
+                    masked_poses[frame_idx][camera_idx][keypoint_idx] = (x, y)
     
     return masked_poses
 
 
-def compute_reprojection_error(pose_3d, pose_2d, camera_intrinsics, camera_extrinsics, distortion_coeffs):
+def compute_reprojection_error(pose_3d, pose_2d, camera_intrinsics, camera_extrinsics, distortion_coeffs, named=False):
     """
     Computes reprojection error between the 3D poses and 2D poses for all frames and cameras.
     
@@ -295,6 +382,7 @@ def compute_reprojection_error(pose_3d, pose_2d, camera_intrinsics, camera_extri
         camera_intrinsics: Intrinsic matrices for each camera.
         camera_extrinsics: Extrinsic parameters Rotation matrix, translation vector for each camera
         distortion_coeffs: Distortion coefficients for each camera (k1, k2, p1, p2, k3).
+        named: If True, use camera names instead of indices (default: False).
     
     Returns:
         Total reprojection error.
@@ -302,33 +390,62 @@ def compute_reprojection_error(pose_3d, pose_2d, camera_intrinsics, camera_extri
     
     total_error = 0.0
     num_valid_points = 0
-    
-    for camera_idx in range(num_cameras):
-        # Get the camera parameters
-        K = camera_intrinsics[camera_idx].reshape(3,3)
-        (rot, t) = camera_extrinsics[camera_idx]
-        distortion = distortion_coeffs[camera_idx]
 
-        for keypoint_idx in range(num_keypoints):
-            # Skip masked keypoints (i.e., keypoints not seen in enough cameras)
-            if pose_2d[camera_idx][keypoint_idx] is None:
-                continue
-            
-            # Project the 3D keypoint to the 2D plane
-            point_3d = pose_3d[keypoint_idx]
-            x_proj, y_proj = project_point(point_3d, K, rot, t, distortion, cam_name=cam_names[camera_idx])
-            
-            # Get the actual 2D point from the data
-            x_actual, y_actual = pose_2d[camera_idx][keypoint_idx]
-            
-            # Compute the reprojection error for this keypoint
-            # print(camera_idx)
-            # print(keypoint_idx)
-            # print(x_proj, y_proj)
-            # print(x_actual, y_actual)
-            error = np.sqrt((x_proj - x_actual)**2 + (y_proj - y_actual)**2)
-            total_error += error
-            num_valid_points += 1
+    if named:
+        cam_names = list(pose_2d.keys())
+
+        for cam_name in cam_names:
+            camera_idx = cam_names.index(cam_name)
+            # Get the camera parameters
+            K = camera_intrinsics[cam_name].reshape(3,3)
+            (rot, t) = camera_extrinsics[cam_name]
+            distortion = distortion_coeffs[cam_name]
+
+            for keypoint_idx in range(len(pose_2d[cam_name])):
+                # Skip masked keypoints (i.e., keypoints not seen in enough cameras)
+                if pose_2d[cam_name][keypoint_idx] is None:
+                    continue
+                
+                # Project the 3D keypoint to the 2D plane
+                point_3d = pose_3d[keypoint_idx]
+                x_proj, y_proj = project_point(point_3d, K, rot, t, distortion)
+                
+                # Get the actual 2D point from the data
+                x_actual, y_actual = pose_2d[cam_name][keypoint_idx]
+                
+                # Compute the reprojection error for this keypoint
+                error = np.sqrt((x_proj - x_actual)**2 + (y_proj - y_actual)**2)
+                total_error += error
+                num_valid_points += 1
+
+    else:
+
+        for camera_idx in range(num_cameras):
+            # Get the camera parameters
+            K = camera_intrinsics[camera_idx].reshape(3,3)
+            (rot, t) = camera_extrinsics[camera_idx]
+            distortion = distortion_coeffs[camera_idx]
+
+            for keypoint_idx in range(num_keypoints):
+                # Skip masked keypoints (i.e., keypoints not seen in enough cameras)
+                if pose_2d[camera_idx][keypoint_idx] is None:
+                    continue
+                
+                # Project the 3D keypoint to the 2D plane
+                point_3d = pose_3d[keypoint_idx]
+                x_proj, y_proj = project_point(point_3d, K, rot, t, distortion)
+                
+                # Get the actual 2D point from the data
+                x_actual, y_actual = pose_2d[camera_idx][keypoint_idx]
+                
+                # Compute the reprojection error for this keypoint
+                # print(camera_idx)
+                # print(keypoint_idx)
+                # print(x_proj, y_proj)
+                # print(x_actual, y_actual)
+                error = np.sqrt((x_proj - x_actual)**2 + (y_proj - y_actual)**2)
+                total_error += error
+                num_valid_points += 1
     
     # Average reprojection error over all valid points
     if num_valid_points > 0:
@@ -339,7 +456,7 @@ def compute_reprojection_error(pose_3d, pose_2d, camera_intrinsics, camera_extri
 
 def reconstruct_3d_pose(poses_2d, camera_intrinsics, camera_extrinsics, distortion_coeffs, camera_matrices, 
                      regularization_weight=1.0, reprojection_weight=1.0, return_init=False, only_init=False, 
-                     split_opt=None, smoothing=False, use_torch=True):
+                     split_opt=None, smoothing=False, use_torch=True, multi_person=False):
     """
     Reconstructs the 3D pose from 2D poses using multiple cameras, including regularization and reprojection error.
     Args:
@@ -355,6 +472,7 @@ def reconstruct_3d_pose(poses_2d, camera_intrinsics, camera_extrinsics, distorti
         split_opt: Split the optimization into chunks of this size (default: None, optimize all frames at once)
         smoothing: Apply smoothing to the result (default: False)
         use_torch: Use PyTorch for optimization if available (default: True)
+        multi_person: Whether this is multi-person data (affects processing but not core logic)
     Returns:
         Optimized 3D poses for all frames.
     """
@@ -388,6 +506,113 @@ def reconstruct_3d_pose(poses_2d, camera_intrinsics, camera_extrinsics, distorti
         return optimize_pose_scipy(interpolated_result, poses_2d, camera_intrinsics, camera_extrinsics, 
                                   distortion_coeffs, regularization_weight, reprojection_weight, 
                                   return_init, split_opt)
+
+def reconstruct_3d_pose_weighted(poses_2d_with_confidence, camera_intrinsics, camera_extrinsics, distortion_coeffs, camera_matrices, 
+                               confidence_threshold=0.3, min_cameras=2, regularization_weight=1.0, reprojection_weight=1.0, 
+                               return_init=False, only_init=False, split_opt=None, smoothing=False, use_torch=True, 
+                               exhaustive_search=False):
+    """
+    Reconstructs the 3D pose from 2D poses with confidence weighting, without explicit masking.
+    Uses confidence values for weighted triangulation and confidence-weighted optimization.
+    
+    Args:
+        poses_2d_with_confidence: The 2D poses for each frame and each camera with confidence values.
+                                 Format: poses_2d[frame][camera][keypoint] -> (x, y, confidence)
+        camera_intrinsics: Intrinsic matrices for each camera.
+        camera_extrinsics: Extrinsic parameters Rotation matrix, translation vector for each camera
+        distortion_coeffs: Distortion coefficients for each camera (k1, k2, p1, p2, k3).
+        camera_matrices: A list of 3x4 projection matrices (P = K[R|t]) for each camera.
+        confidence_threshold: Minimum confidence threshold for considering keypoints (default: 0.3)
+        min_cameras: Minimum number of cameras required for triangulation (default: 2)
+        regularization_weight: The weight of the regularization term in the optimization.
+        reprojection_weight: The weight of the reprojection error in the optimization.
+        return_init: Return a tuple with both the result and the initial estimate (default: False)
+        only_init: Return only the initial estimate without optimization (default: False)
+        split_opt: Split the optimization into chunks of this size (default: None, optimize all frames at once)
+        smoothing: Apply smoothing to the result (default: False)
+        use_torch: Use PyTorch for optimization if available (default: True)
+        exhaustive_search: Enable exhaustive search in triangulation initialization (default: False)
+    
+    Returns:
+        Optimized 3D poses for all frames with confidence weighting.
+    """
+    num_frames = len(poses_2d_with_confidence)
+    num_cameras = len(poses_2d_with_confidence[0])
+    num_keypoints = len(poses_2d_with_confidence[0][0])
+    
+    # Filter poses based on confidence and min_cameras, but keep confidence values
+    filtered_poses_2d = []
+    confidence_weights = []
+    
+    for frame_idx in range(num_frames):
+        frame_poses = []
+        frame_weights = []
+        
+        for camera_idx in range(num_cameras):
+            camera_poses = []
+            camera_weights = []
+            
+            for keypoint_idx in range(num_keypoints):
+                try:
+                    x, y, confidence = poses_2d_with_confidence[frame_idx][camera_idx][keypoint_idx]
+                    
+                    # Count how many cameras see this keypoint above threshold
+                    camera_count = 0
+                    for c_idx in range(num_cameras):
+                        try:
+                            _, _, c_conf = poses_2d_with_confidence[frame_idx][c_idx][keypoint_idx]
+                            if c_conf >= confidence_threshold:
+                                camera_count += 1
+                        except:
+                            continue
+                    
+                    # Include keypoint if confidence is above threshold and enough cameras see it
+                    if confidence >= confidence_threshold and camera_count >= min_cameras:
+                        camera_poses.append((x, y, confidence))
+                        camera_weights.append(confidence)
+                    else:
+                        camera_poses.append(None)
+                        camera_weights.append(0.0)
+                except:
+                    camera_poses.append(None)
+                    camera_weights.append(0.0)
+                    
+            frame_poses.append(camera_poses)
+            frame_weights.append(camera_weights)
+            
+        filtered_poses_2d.append(frame_poses)
+        confidence_weights.append(frame_weights)
+    
+    # Initialize the 3D poses using confidence-weighted triangulation
+    initial_poses_3d = np.array(initialize_pose_with_triangulation(
+        filtered_poses_2d, camera_matrices, camera_intrinsics, camera_extrinsics, 
+        distortion_coeffs, exhaustive_search=exhaustive_search
+    ))
+    
+    if num_frames > 1:
+        initial_poses_3d = np.where(initial_poses_3d == None, np.nan, initial_poses_3d).astype(np.float32)
+        # Interpolate keypoints
+        interpolated_result = interpolate_keypoints(initial_poses_3d)
+    else:
+        interpolated_result = np.where(initial_poses_3d == None, 0, initial_poses_3d).astype(np.float32)
+
+    if only_init:
+        return interpolated_result
+    
+    if smoothing:
+        smoothed_result = savgol_filter(interpolated_result, 20, 10, axis=0)
+        return smoothed_result
+
+    # Check if PyTorch is available and requested
+    # Note: Currently falling back to standard optimization - confidence weighting in optimization to be implemented
+    if use_torch and TORCH_AVAILABLE:
+        return optimize_pose_torch(interpolated_result, filtered_poses_2d, camera_intrinsics, camera_extrinsics, 
+                                 distortion_coeffs, regularization_weight, reprojection_weight, 
+                                 return_init, split_opt)
+    else:
+        return optimize_pose_scipy(interpolated_result, filtered_poses_2d, camera_intrinsics, camera_extrinsics, 
+                                 distortion_coeffs, regularization_weight, reprojection_weight, 
+                                 return_init, split_opt)
 
 def optimize_pose_scipy(interpolated_result, poses_2d, camera_intrinsics, camera_extrinsics, 
                       distortion_coeffs, regularization_weight, reprojection_weight, 
@@ -513,14 +738,12 @@ def optimize_pose_torch(interpolated_result, poses_2d, camera_intrinsics, camera
     num_frames, num_keypoints, _ = interpolated_result.shape
 
     # Convert data to PyTorch tensors
-    poses_2d_torch = [torch.tensor(frame, dtype=torch.float32) for frame in poses_2d]
     camera_intrinsics_torch = [torch.tensor(K, dtype=torch.float32).reshape(3, 3) for K in camera_intrinsics]
     camera_extrinsics_torch = [(torch.tensor(rot, dtype=torch.float32), torch.tensor(t, dtype=torch.float32)) for rot, t in camera_extrinsics]
     distortion_coeffs_torch = [torch.tensor(distortion, dtype=torch.float32) for distortion in distortion_coeffs]
     interpolated_result_torch = torch.tensor(interpolated_result, dtype=torch.float32, requires_grad=True)
 
-    # Define the optimizer
-    optimizer = Adam([interpolated_result_torch], lr=1e-3)
+    
 
     # Define the loss function
     def compute_loss(poses_3d):
@@ -535,7 +758,7 @@ def optimize_pose_torch(interpolated_result, poses_2d, camera_intrinsics, camera
             loss += regularization_weight * (length - fixed_length)**2
         
         # Reprojection error for frame 0
-        reprojection_error = compute_reprojection_error_torch(poses_3d[0], poses_2d_torch[0], camera_intrinsics_torch, camera_extrinsics_torch, distortion_coeffs_torch)
+        reprojection_error = compute_reprojection_error_torch(poses_3d[0], poses_2d[0], camera_intrinsics_torch, camera_extrinsics_torch, distortion_coeffs_torch)
         loss += reprojection_weight * reprojection_error**2
 
         for frame_idx in range(1, num_frames):
@@ -552,27 +775,40 @@ def optimize_pose_torch(interpolated_result, poses_2d, camera_intrinsics, camera
             loss += regularization_weight * displacement**2  # Penalize large movements
 
             # Reprojection error 
-            reprojection_error = compute_reprojection_error_torch(poses_3d[frame_idx], poses_2d_torch[frame_idx], camera_intrinsics_torch, camera_extrinsics_torch, distortion_coeffs_torch)
+            reprojection_error = compute_reprojection_error_torch(poses_3d[frame_idx], poses_2d[frame_idx], camera_intrinsics_torch, camera_extrinsics_torch, distortion_coeffs_torch)
             loss += reprojection_weight * reprojection_error**2
 
         return loss
+    
+    # Define the optimizer
+    optimizer = torch.optim.LBFGS(
+        [interpolated_result_torch], 
+        lr=1,
+        max_iter=10,
+        line_search_fn='strong_wolfe',
+        tolerance_grad=1e-7,
+        tolerance_change=1e-9
+    )
+
+    # Define closure function for optimizer
+    def closure():
+        loss = compute_loss(interpolated_result_torch)
+        loss.backward()
+        return loss
 
     # Optimization loop
-    for epoch in range(100):
-        optimizer.zero_grad()
-        
-        # Forward pass: compute the loss
-        loss = compute_loss(interpolated_result_torch)
-        
-        # Backward pass: compute gradients
-        loss.backward()
-        
-        # Update parameters
-        optimizer.step()
-        
-        # Print loss every 10 epochs
+
+    # Run optimization
+    # Callback to print loss during optimization
+    def print_loss(epoch, loss):
         if epoch % 10 == 0:
             print(f"Epoch {epoch}, Loss: {loss.item()}")
+
+    # Run optimization
+    for i in range(100): # LBFGS is called once and runs its own loop
+        loss = optimizer.step(closure)
+        print_loss(i * optimizer.state_dict()['state'][0]['n_iter'], loss)
+
     
     optimized_poses_3d = interpolated_result_torch.detach().numpy().reshape(num_frames, num_keypoints, 3)
 
@@ -586,7 +822,7 @@ def compute_reprojection_error_torch(pose_3d, pose_2d, camera_intrinsics, camera
     
     Args:
         pose_3d: Reconstructed 3D pose (num_keypoints x 3).
-        pose_2d: 2D pose (num_cameras x num_keypoints -> (x, y)).
+        pose_2d: 2D pose (num_cameras x num_keypoints -> (x, y, conf)).
         camera_intrinsics: Intrinsic matrices for each camera.
         camera_extrinsics: Extrinsic parameters Rotation matrix, translation vector for each camera
         distortion_coeffs: Distortion coefficients for each camera (k1, k2, p1, p2, k3).
@@ -599,34 +835,44 @@ def compute_reprojection_error_torch(pose_3d, pose_2d, camera_intrinsics, camera
     total_error = 0.0
     num_valid_points = 0
     
-    for camera_idx in range(num_cameras):
+    for camera_idx in range(len(camera_intrinsics)):
+        valid_points_3d = []
+        valid_points_2d = []
+        valid_indices = []
+        
         # Get the camera parameters
-        K = camera_intrinsics[camera_idx].reshape(3,3)
+        K = camera_intrinsics[camera_idx]
         (rot, t) = camera_extrinsics[camera_idx]
         distortion = distortion_coeffs[camera_idx]
 
-        for keypoint_idx in range(num_keypoints):
+        for keypoint_idx in range(len(pose_3d)):
             # Skip masked keypoints (i.e., keypoints not seen in enough cameras)
             if pose_2d[camera_idx][keypoint_idx] is None:
                 continue
             
-            # Project the 3D keypoint to the 2D plane
-            point_3d = pose_3d[keypoint_idx]
-            x_proj, y_proj = project_point(point_3d, K, rot, t, distortion, cam_name=cam_names[camera_idx])
+            # Collect the 3D keypoint and corresponding 2D point
+            valid_points_3d.append(pose_3d[keypoint_idx])
+            valid_points_2d.append(torch.tensor(pose_2d[camera_idx][keypoint_idx])[:2])
+            valid_indices.append(keypoint_idx)
+        
+        if valid_points_3d:
+            # Project all valid 3D points at once
+            points_3d_tensor = torch.stack(valid_points_3d)
+            points_2d_tensor = torch.stack(valid_points_2d)
             
-            # Get the actual 2D point from the data
-            x_actual, y_actual = pose_2d[camera_idx][keypoint_idx]
+            # Project the 3D keypoints to the 2D plane
+            projected_points = project_points_torch(points_3d_tensor, K, rot, t, distortion)
             
-            # Compute the reprojection error for this keypoint
-            error = torch.sqrt((x_proj - x_actual)**2 + (y_proj - y_actual)**2)
-            total_error += error
-            num_valid_points += 1
+            # Compute the reprojection error for these keypoints
+            errors = torch.sqrt(torch.sum((projected_points - points_2d_tensor)**2, dim=1))
+            total_error += torch.sum(errors)
+            num_valid_points += len(valid_points_3d)
     
     # Average reprojection error over all valid points
     if num_valid_points > 0:
         return total_error / num_valid_points
     else:
-        return 0.0
+        return torch.tensor(0.0)
 
 def validate_cams(poses_2d, camera_intrinsics, camera_extrinsics, distortion_coeffs, camera_matrices):
 
@@ -930,7 +1176,7 @@ def match_hand_poses(oriented_hands, pose_2d_dict, camera_intrinsics, rotation, 
                 if score > 0.3:  # Only draw high-confidence keypoints
                     cv2.circle(vis_frame, (int(pt[0]), int(pt[1])), 5, (0, 0, 255), -1)
                     cv2.putText(vis_frame, str(i), (int(pt[0])+5, int(pt[1])+5), 
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
         
         if best_match2 is not None and best_match2 in pose_2d_dict:
             keypoints = pose_2d_dict[best_match2].keypoints.squeeze()
@@ -940,7 +1186,7 @@ def match_hand_poses(oriented_hands, pose_2d_dict, camera_intrinsics, rotation, 
                 if score > 0.3:  # Only draw high-confidence keypoints
                     cv2.circle(vis_frame, (int(pt[0]), int(pt[1])), 5, (255, 255, 0), -1)
                     cv2.putText(vis_frame, str(i), (int(pt[0])+5, int(pt[1])+5), 
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
         
         # Add legend
         cv2.putText(vis_frame, "Blue: Left hand (projected)", (10, 30), 
@@ -958,4 +1204,731 @@ def match_hand_poses(oriented_hands, pose_2d_dict, camera_intrinsics, rotation, 
         return (best_match1, min_error1), (best_match2, min_error2), vis_frame
         
     return (best_match1, min_error1), (best_match2, min_error2)
+
+def visualize_matched_persons(video_paths, matched_results_path, output_dir, 
+                          start_frame=0, end_frame=None, show_keypoints=True, 
+                          show_bbox=True, fps=30, colormap=None, use_png_folders=False):
+    """
+    Visualize matched persons across multiple cameras.
+    
+    Args:
+        video_paths: Dict mapping camera names to video paths (MP4) or image folders (PNG)
+        matched_results_path: Path to the matched results JSON file
+        output_dir: Directory to save the visualization videos
+        start_frame: First frame to visualize
+        end_frame: Last frame to visualize (None for all frames)
+        show_keypoints: Whether to show keypoints
+        show_bbox: Whether to show bounding boxes
+        fps: FPS of the output videos
+        colormap: Optional colormap for person IDs
+        use_png_folders: If True, treat video_paths as folders containing PNG images.
+                        If False, treat video_paths as MP4 video files.
+    
+    Returns:
+        Dict mapping camera names to output video paths
+    """
+    import os
+    import json
+    import cv2
+    import numpy as np
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Load matched results
+    with open(matched_results_path, 'r') as f:
+        matched_results = json.load(f)
+    
+    # Get the total number of frames
+    num_frames = len(matched_results)
+    
+    if end_frame is None:
+        end_frame = num_frames
+    
+    # Ensure end_frame is within bounds
+    end_frame = min(end_frame, num_frames)
+    start_frame = max(0, start_frame)
+    
+    # Initialize video captures and writers
+    captures = {}
+    writers = {}
+    output_paths = {}
+    png_file_lists = {}  # For PNG mode: store sorted file lists
+    
+    for camera_name, video_path in video_paths.items():
+        if use_png_folders:
+            # Handle PNG folder mode
+            if not os.path.exists(video_path):
+                print(f"Warning: PNG folder not found for camera {camera_name}: {video_path}")
+                continue
+            
+            # Get list of PNG files and sort them
+            png_files = [f for f in os.listdir(video_path) if f.lower().endswith('.png')]
+            if not png_files:
+                print(f"Warning: No PNG files found in folder for camera {camera_name}: {video_path}")
+                continue
+            
+            # Sort PNG files numerically (assuming format like frame_0001.png or 0001.png)
+            try:
+                png_files.sort(key=lambda x: int(''.join(filter(str.isdigit, x))))
+            except ValueError:
+                # Fallback to alphabetical sort if numeric extraction fails
+                png_files.sort()
+            
+            png_file_lists[camera_name] = [os.path.join(video_path, f) for f in png_files]
+            
+            # Read first image to get dimensions
+            first_image = cv2.imread(png_file_lists[camera_name][0])
+            if first_image is None:
+                print(f"Warning: Could not read first PNG for camera {camera_name}")
+                continue
+            
+            height, width = first_image.shape[:2]
+            
+        else:
+            # Handle MP4 video mode
+            if not os.path.exists(video_path):
+                print(f"Warning: Video file not found for camera {camera_name}: {video_path}")
+                continue
+                
+            # Open the video file
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                print(f"Warning: Could not open video for camera {camera_name}: {video_path}")
+                continue
+                
+            captures[camera_name] = cap
+            
+            # Get video properties
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        
+        # Create output video file
+        output_path = os.path.join(output_dir, f"{camera_name}_matched_visualization.mp4")
+        writer = cv2.VideoWriter(
+            output_path, 
+            cv2.VideoWriter_fourcc(*'mp4v'), 
+            fps, 
+            (width, height)
+        )
+        
+        writers[camera_name] = writer
+        output_paths[camera_name] = output_path
+    
+    # Set up colormap for person IDs
+    if colormap is None:
+        # Generate distinct colors for each person ID
+        def get_distinct_colors(n):
+            import colorsys
+            HSV_tuples = [(x*1.0/n, 0.8, 0.9) for x in range(n)]
+            return list(map(lambda x: tuple(int(i * 255) for i in colorsys.hsv_to_rgb(*x)), HSV_tuples))
+        
+        # Get all unique person IDs
+        person_ids = set()
+        for frame in matched_results:
+            for person in frame.get('matched_instances', []):
+                person_ids.add(person.get('person_id'))
+        
+        colormap = {pid: color for pid, color in zip(sorted(person_ids), get_distinct_colors(len(person_ids)))}
+    
+    # Process each frame
+    for frame_idx in range(start_frame, end_frame):
+        if frame_idx >= len(matched_results):
+            break
+            
+        frame_data = matched_results[frame_idx]
+        
+        # Process each camera
+        if use_png_folders:
+            # PNG folder mode
+            for camera_name in png_file_lists.keys():
+                if camera_name not in writers:
+                    continue
+                    
+                # Check if frame index is within available PNG files
+                if frame_idx >= len(png_file_lists[camera_name]):
+                    print(f"Warning: Frame {frame_idx} not available for camera {camera_name} (only {len(png_file_lists[camera_name])} PNG files)")
+                    continue
+                
+                # Read the PNG file
+                png_path = png_file_lists[camera_name][frame_idx]
+                frame = cv2.imread(png_path)
+                
+                if frame is None:
+                    print(f"Warning: Could not read PNG file {png_path} for camera {camera_name}")
+                    continue
+                
+                # Draw matched persons for this camera
+                for person in frame_data.get('matched_instances', []):
+                    person_id = person.get('person_id')
+                    color = colormap.get(person_id, (255, 255, 255))  # Default to white if ID not in colormap
+                    
+                    # Find the instance for this camera
+                    camera_instances = [
+                        inst for inst in person.get('instances', []) 
+                        if inst.get('camera_name') == camera_name
+                    ]
+                    
+                    for instance in camera_instances:
+                        # Draw bounding box if requested
+                        if show_bbox and 'bbox' in instance:
+                            bbox = instance['bbox']
+                            if bbox is not None and len(bbox) == 4:
+                                x1, y1, x2, y2 = [int(coord) for coord in bbox]
+                                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                                # Add person ID label
+                                label = f"ID: {person_id}"
+                                cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                        
+                        # Draw keypoints if requested
+                        if show_keypoints and 'keypoints' in instance and 'keypoint_scores' in instance:
+                            keypoints = instance['keypoints']
+                            scores = instance['keypoint_scores']
+                            
+                            # Draw keypoints as circles
+                            for kp_idx, (kp, score) in enumerate(zip(keypoints, scores)):
+                                if score > 0.5:  # Only draw high-confidence keypoints
+                                    x, y = int(kp[0]), int(kp[1])
+                                    cv2.circle(frame, (x, y), 3, color, -1)
+                            
+                            # Draw skeleton connections if available
+                            try:
+                                from helpers.definitions import WHOLEBODY_KEYPOINT_PAIRS
+                                
+                                for pair in WHOLEBODY_KEYPOINT_PAIRS:
+                                    idx1, idx2 = pair
+                                    if (idx1 < len(keypoints) and idx2 < len(keypoints) and
+                                        scores[idx1] > 0.5 and scores[idx2] > 0.5):
+                                        pt1 = (int(keypoints[idx1][0]), int(keypoints[idx1][1]))
+                                        pt2 = (int(keypoints[idx2][0]), int(keypoints[idx2][1]))
+                                        cv2.line(frame, pt1, pt2, color, 1)
+                            except ImportError:
+                                print("Warning: Could not import WHOLEBODY_KEYPOINT_PAIRS, skipping skeleton connections")
+                
+                # Write the frame
+                writers[camera_name].write(frame)
+                
+                # Display progress
+                if frame_idx % 10 == 0:
+                    print(f"Processed frame {frame_idx}/{end_frame-start_frame} for camera {camera_name}")
+        
+        else:
+            # MP4 video mode
+            for camera_name, cap in captures.items():
+                # Set the frame position
+                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                success, frame = cap.read()
+                
+                if not success:
+                    print(f"Warning: Could not read frame {frame_idx} from camera {camera_name}")
+                    continue
+                    
+                # Draw matched persons for this camera
+                for person in frame_data.get('matched_instances', []):
+                    person_id = person.get('person_id')
+                    color = colormap.get(person_id, (255, 255, 255))  # Default to white if ID not in colormap
+                    
+                    # Find the instance for this camera
+                    camera_instances = [
+                        inst for inst in person.get('instances', []) 
+                        if inst.get('camera_name') == camera_name
+                    ]
+                    
+                    for instance in camera_instances:
+                        # Draw bounding box if requested
+                        if show_bbox and 'bbox' in instance:
+                            bbox = instance['bbox']
+                            if bbox is not None and len(bbox) == 4:
+                                x1, y1, x2, y2 = [int(coord) for coord in bbox]
+                                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                                # Add person ID label
+                                label = f"ID: {person_id}"
+                                cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                        
+                        # Draw keypoints if requested
+                        if show_keypoints and 'keypoints' in instance and 'keypoint_scores' in instance:
+                            keypoints = instance['keypoints']
+                            scores = instance['keypoint_scores']
+                            
+                            # Draw keypoints as circles
+                            for kp_idx, (kp, score) in enumerate(zip(keypoints, scores)):
+                                if score > 0.5:  # Only draw high-confidence keypoints
+                                    x, y = int(kp[0]), int(kp[1])
+                                    cv2.circle(frame, (x, y), 3, color, -1)
+                            
+                            # Draw skeleton connections if available
+                            try:
+                                from helpers.definitions import WHOLEBODY_KEYPOINT_PAIRS
+                                
+                                for pair in WHOLEBODY_KEYPOINT_PAIRS:
+                                    idx1, idx2 = pair
+                                    if (idx1 < len(keypoints) and idx2 < len(keypoints) and
+                                        scores[idx1] > 0.5 and scores[idx2] > 0.5):
+                                        pt1 = (int(keypoints[idx1][0]), int(keypoints[idx1][1]))
+                                        pt2 = (int(keypoints[idx2][0]), int(keypoints[idx2][1]))
+                                        cv2.line(frame, pt1, pt2, color, 1)
+                            except ImportError:
+                                print("Warning: Could not import WHOLEBODY_KEYPOINT_PAIRS, skipping skeleton connections")
+                
+                # Write the frame
+                writers[camera_name].write(frame)
+                
+                # Display progress
+                if frame_idx % 10 == 0:
+                    print(f"Processed frame {frame_idx}/{end_frame-start_frame} for camera {camera_name}")
+    
+    # Clean up
+    if not use_png_folders:
+        # Only release video captures if we were using MP4 mode
+        for cap in captures.values():
+            cap.release()
+    
+    for writer in writers.values():
+        writer.release()
+    
+    print("Visualization completed!")
+    return output_paths
+
+# Add this function at the end of the file
+
+def process_and_match_poses(pose_output_dir, cam_names, cam_matrices, cam_intrinsics, 
+                          cam_extrinsics, cam_distortions, matched_output_dir,
+                          confidence_threshold=0.3, reprojection_threshold=20.0,
+                          temporal_similarity_threshold=200.0, min_matched_cameras=2):
+    """
+    Match person IDs across cameras for the entire sequence at once.
+    Creates consistent cross-camera person ID mappings that remain stable throughout the sequence.
+    
+    Args:
+        pose_output_dir: Directory containing the wholebody JSON files
+        cam_names: List of camera names
+        cam_matrices: Dict mapping camera names to camera projection matrices
+        cam_intrinsics: Dict mapping camera names to camera intrinsic matrices  
+        cam_extrinsics: Dict mapping camera names to camera extrinsic parameters
+        cam_distortions: Dict mapping camera names to camera distortion coefficients
+        matched_output_dir: Output directory for matched results
+        confidence_threshold: Minimum confidence for keypoints
+        reprojection_threshold: Maximum reprojection error for matching
+        temporal_similarity_threshold: Threshold for temporal consistency (unused in this implementation)
+        min_matched_cameras: Minimum number of cameras a person must be matched in
+        
+    Returns:
+        Path to the saved matched results JSON file
+    """    
+    def load_pose_data(pose_output_dir, cam_names):
+        """Load pose data from all camera JSON files and organize by person_id."""
+        pose_data = {}
+        
+        for cam_name in cam_names:
+            json_file = os.path.join(pose_output_dir, f'{cam_name}_wholebody.json')
+            if os.path.exists(json_file):
+                with open(json_file, 'r') as f:
+                    data = json.load(f)
+                    pose_data[cam_name] = data['body_instances']
+            else:
+                print(f"Warning: Pose file not found for camera {cam_name}")
+                
+        return pose_data
+
+    def extract_person_sequences(pose_data, cam_names, confidence_threshold):
+        """Extract sequences for each person_id in each camera."""
+        person_sequences = {}  # {cam_name: {person_id: [frame_data, ...]}}
+        
+        for cam_name in cam_names:
+            if cam_name not in pose_data:
+                continue
+                
+            person_sequences[cam_name] = {}
+            
+            for frame_idx, frame_data in enumerate(pose_data[cam_name]):
+                if 'instances' not in frame_data:
+                    continue
+                    
+                for instance in frame_data['instances']:
+                    person_id = instance['person_id']
+                    keypoints = np.array(instance['keypoints'])
+                    confidence_scores = np.array(instance['keypoint_scores'])
+                    
+                    # Filter for upper body keypoints (more stable)
+                    upper_body_indices = list(range(11)) + [11, 12]  # nose to wrists + hips
+                    upper_kps = []
+                    upper_confs = []
+                    
+                    for idx in upper_body_indices:
+                        if idx < len(keypoints):
+                            upper_kps.append(keypoints[idx])
+                            upper_confs.append(confidence_scores[idx] if idx < len(confidence_scores) else 0.0)
+                    
+                    upper_kps = np.array(upper_kps)
+                    upper_confs = np.array(upper_confs)
+                    
+                    # Only include if enough confident keypoints
+                    valid_kps = upper_confs > confidence_threshold
+                    if np.sum(valid_kps) >= 5:  # Need at least 5 confident keypoints
+                        if person_id not in person_sequences[cam_name]:
+                            person_sequences[cam_name][person_id] = []
+                        
+                        person_sequences[cam_name][person_id].append({
+                            'frame_idx': frame_idx,
+                            'keypoints': upper_kps,
+                            'confidence_scores': upper_confs,
+                            'bbox': instance.get('bbox', None),
+                            'original_keypoints': keypoints,
+                            'original_confidence_scores': confidence_scores
+                        })
+        
+        return person_sequences
+
+    def calculate_sequence_reprojection_error(seq1, seq2, cam1_name, cam2_name, 
+                                           cam_matrices, cam_intrinsics, cam_extrinsics, cam_distortions):
+        """Calculate average reprojection error between two person sequences."""
+        total_error = 0
+        valid_frames = 0
+        
+        # Create frame mapping for both sequences
+        seq1_frames = {item['frame_idx']: item for item in seq1}
+        seq2_frames = {item['frame_idx']: item for item in seq2}
+        
+        # Find common frames
+        common_frames = set(seq1_frames.keys()) & set(seq2_frames.keys())
+        
+        if len(common_frames) < 10:  # Need at least 10 common frames for reliable matching
+            return float('inf')
+        
+        for frame_idx in common_frames:
+            item1 = seq1_frames[frame_idx]
+            item2 = seq2_frames[frame_idx]
+            
+            kps1 = item1['keypoints']
+            kps2 = item2['keypoints']
+            conf1 = item1['confidence_scores']
+            conf2 = item2['confidence_scores']
+            
+            frame_error = 0
+            valid_kps = 0
+            
+            # Calculate reprojection error for each keypoint
+            for kp_idx in range(len(kps1)):
+                if conf1[kp_idx] > 0.3 and conf2[kp_idx] > 0.3:
+                    # Triangulate keypoint
+                    kp1_2d = kps1[kp_idx]
+                    kp2_2d = kps2[kp_idx]
+                    
+                    # Use DLT triangulation
+                    P1 = cam_matrices[cam1_name]
+                    P2 = cam_matrices[cam2_name]
+                    
+                    A = np.array([
+                        kp1_2d[0] * P1[2, :] - P1[0, :],
+                        kp1_2d[1] * P1[2, :] - P1[1, :],
+                        kp2_2d[0] * P2[2, :] - P2[0, :],
+                        kp2_2d[1] * P2[2, :] - P2[1, :]
+                    ])
+                    
+                    _, _, V = np.linalg.svd(A)
+                    X = V[-1]
+                    
+                    if X[3] != 0:
+                        point_3d = X[:3] / X[3]
+                        
+                        # Calculate reprojection errors
+                        proj1 = project_points(
+                            point_3d.reshape(1, 3),
+                            cam_intrinsics[cam1_name],
+                            cam_extrinsics[cam1_name][0],
+                            cam_extrinsics[cam1_name][1],
+                            cam_distortions[cam1_name]
+                        )
+                        
+                        proj2 = project_points(
+                            point_3d.reshape(1, 3),
+                            cam_intrinsics[cam2_name],
+                            cam_extrinsics[cam2_name][0],
+                            cam_extrinsics[cam2_name][1],
+                            cam_distortions[cam2_name]
+                        )
+                        
+                        if proj1.size > 0 and proj2.size > 0:
+                            error1 = np.linalg.norm(proj1.squeeze() - kp1_2d)
+                            error2 = np.linalg.norm(proj2.squeeze() - kp2_2d)
+                            frame_error += (error1 + error2) / 2
+                            valid_kps += 1
+            
+            if valid_kps > 0:
+                total_error += frame_error / valid_kps
+                valid_frames += 1
+        
+        return total_error / valid_frames if valid_frames > 0 else float('inf')
+
+    def match_person_sequences_across_cameras(person_sequences, cam_names, cam_matrices, 
+                                            cam_intrinsics, cam_extrinsics, cam_distortions, 
+                                            reprojection_threshold):
+        """Match person IDs across all camera pairs for the entire sequence."""
+        print("Matching person sequences across cameras...")
+        
+        # Create pairwise camera combinations using names directly
+        camera_pairs = []
+        for i in range(len(cam_names)):
+            for j in range(i + 1, len(cam_names)):
+                camera_pairs.append((cam_names[i], cam_names[j]))
+        
+        # For each camera pair, find best person ID matches
+        pairwise_matches = {}  # {(cam1, cam2): {person_id1: person_id2}}
+        
+        for cam1_name, cam2_name in camera_pairs:
+            if cam1_name not in person_sequences or cam2_name not in person_sequences:
+                continue
+                
+            print(f"Matching {cam1_name} with {cam2_name}...")
+            
+            # Get person IDs for both cameras
+            cam1_persons = list(person_sequences[cam1_name].keys())
+            cam2_persons = list(person_sequences[cam2_name].keys())
+            
+            if not cam1_persons or not cam2_persons:
+                continue
+            
+            # Calculate reprojection error matrix
+            error_matrix = np.full((len(cam1_persons), len(cam2_persons)), float('inf'))
+            
+            for i, pid1 in enumerate(cam1_persons):
+                for j, pid2 in enumerate(cam2_persons):
+                    seq1 = person_sequences[cam1_name][pid1]
+                    seq2 = person_sequences[cam2_name][pid2]
+                    
+                    error = calculate_sequence_reprojection_error(
+                        seq1, seq2, cam1_name, cam2_name,
+                        cam_matrices, cam_intrinsics, cam_extrinsics, cam_distortions
+                    )
+                    error_matrix[i, j] = error
+            
+            # Find best matches using Hungarian algorithm (or greedy approach)
+            matches = {}
+            used_cam2_persons = set()
+            
+            # Sort by error and assign greedily
+            flat_indices = np.argsort(error_matrix.flatten())
+            
+            for flat_idx in flat_indices:
+                i, j = np.unravel_index(flat_idx, error_matrix.shape)
+                error = error_matrix[i, j]
+                
+                if error > reprojection_threshold:
+                    break
+                    
+                pid1 = cam1_persons[i]
+                pid2 = cam2_persons[j]
+                
+                # Check if either person is already matched
+                if pid1 not in matches and pid2 not in used_cam2_persons:
+                    matches[pid1] = pid2
+                    used_cam2_persons.add(pid2)
+                    print(f"  Matched {cam1_name} person {pid1} -> {cam2_name} person {pid2} (error: {error:.2f})")
+            
+            pairwise_matches[(cam1_name, cam2_name)] = matches
+        
+        return pairwise_matches
+
+    def create_global_person_mapping(pairwise_matches, cam_names, person_sequences):
+        """Create global person IDs from pairwise matches."""
+        print("Creating global person mapping...")
+        
+        # Create graph of person connections
+        from collections import defaultdict, deque
+        
+        # Node format: (camera_name, person_id)
+        graph = defaultdict(set)
+        
+        # Add edges from pairwise matches
+        for (cam1, cam2), matches in pairwise_matches.items():
+            for pid1, pid2 in matches.items():
+                node1 = (cam1, pid1)
+                node2 = (cam2, pid2)
+                graph[node1].add(node2)
+                graph[node2].add(node1)
+        
+        # Find connected components using BFS
+        visited = set()
+        global_person_id = 0
+        global_mapping = {}  # {(cam_name, person_id): global_person_id}
+        
+        for cam_name in cam_names:
+            if cam_name not in person_sequences:
+                continue
+            for person_id in person_sequences[cam_name].keys():
+                node = (cam_name, person_id)
+                
+                if node not in visited:
+                    # BFS to find all connected nodes
+                    component = []
+                    queue = deque([node])
+                    visited.add(node)
+                    
+                    while queue:
+                        current = queue.popleft()
+                        component.append(current)
+                        
+                        for neighbor in graph[current]:
+                            if neighbor not in visited:
+                                visited.add(neighbor)
+                                queue.append(neighbor)
+                    
+                    # Assign same global ID to all nodes in this component
+                    # But only if component has minimum number of cameras
+                    cameras_in_component = set(cam for cam, pid in component)
+                    
+                    if len(cameras_in_component) >= min_matched_cameras:
+                        for cam, pid in component:
+                            global_mapping[(cam, pid)] = global_person_id
+                        print(f"  Global person {global_person_id}: {component}")
+                        global_person_id += 1
+                    else:
+                        print(f"  Rejected component (insufficient cameras): {component}")
+        
+        return global_mapping
+
+    def create_matched_poses_output(person_sequences, global_mapping, pose_data, cam_names):
+        """Create the matched_poses.json output format."""
+        print("Creating matched poses output...")
+        
+        # Determine total number of frames
+        max_frames = 0
+        for cam_data in pose_data.values():
+            max_frames = max(max_frames, len(cam_data))
+        
+        matched_results = []
+        
+        for frame_idx in range(max_frames):
+            frame_result = {
+                'frame_id': frame_idx,
+                'matched_instances': []
+            }
+            
+            # Group instances by global person ID for this frame
+            global_instances = defaultdict(list)  # {global_person_id: [instance, ...]}
+            
+            for cam_name in cam_names:
+                if cam_name not in person_sequences:
+                    continue
+                    
+                for person_id, sequence in person_sequences[cam_name].items():
+                    # Check if this person has a global mapping
+                    if (cam_name, person_id) not in global_mapping:
+                        continue
+                        
+                    global_pid = global_mapping[(cam_name, person_id)]
+                    
+                    # Find frame data for this frame_idx
+                    frame_data = None
+                    for item in sequence:
+                        if item['frame_idx'] == frame_idx:
+                            frame_data = item
+                            break
+                    
+                    if frame_data is not None:
+                        instance = {
+                            'camera_name': cam_name,
+                            'original_person_id': person_id,
+                            'keypoints': frame_data['original_keypoints'].tolist(),
+                            'confidence_scores': frame_data['original_confidence_scores'].tolist(),
+                            'bbox': frame_data['bbox']
+                        }
+                        global_instances[global_pid].append(instance)
+            
+            # Create matched instances
+            for global_pid, instances in global_instances.items():
+                matched_instance = {
+                    'person_id': global_pid,
+                    'instances': instances,
+                    'cameras_matched': [inst['camera_name'] for inst in instances]
+                }
+                frame_result['matched_instances'].append(matched_instance)
+            
+            matched_results.append(frame_result)
+        
+        return matched_results
+
+    # Main processing
+    print("Loading pose data...")
+    pose_data = load_pose_data(pose_output_dir, cam_names)
+    
+    print("Extracting person sequences...")
+    person_sequences = extract_person_sequences(pose_data, cam_names, confidence_threshold)
+    
+    # Print statistics
+    print("Person sequences found:")
+    total_persons = 0
+    for cam_name, persons in person_sequences.items():
+        print(f"  {cam_name}: {len(persons)} persons")
+        total_persons += len(persons)
+    
+    if total_persons == 0:
+        print("No person sequences found!")
+        return None
+    
+    print("Matching person sequences across cameras...")
+    pairwise_matches = match_person_sequences_across_cameras(
+        person_sequences, cam_names, cam_matrices, 
+        cam_intrinsics, cam_extrinsics, cam_distortions, 
+        reprojection_threshold
+    )
+    
+    print("Creating global person mapping...")
+    global_mapping = create_global_person_mapping(pairwise_matches, cam_names, person_sequences)
+    
+    print("Creating matched poses output...")
+    matched_results = create_matched_poses_output(person_sequences, global_mapping, pose_data, cam_names)
+    
+    # Save results
+    os.makedirs(matched_output_dir, exist_ok=True)
+    output_file = os.path.join(matched_output_dir, 'matched_poses.json')
+    with open(output_file, 'w') as f:
+        json.dump(matched_results, f, indent=2)
+    
+    # Save summary statistics
+    summary_file = os.path.join(matched_output_dir, 'matching_summary.json')
+    
+    # Calculate statistics
+    valid_global_persons = set(global_mapping.values())
+    person_stats = {}
+    
+    for global_pid in valid_global_persons:
+        cameras = set()
+        frame_count = 0
+        
+        for (cam_name, person_id), gpid in global_mapping.items():
+            if gpid == global_pid:
+                cameras.add(cam_name)
+                if cam_name in person_sequences and person_id in person_sequences[cam_name]:
+                    frame_count = max(frame_count, len(person_sequences[cam_name][person_id]))
+        
+        person_stats[str(global_pid)] = {
+            'cameras_seen': sorted(cameras),
+            'camera_count': len(cameras),
+            'max_frame_appearances': frame_count
+        }
+    
+    summary_data = {
+        'total_frames': max([len(cam_data) for cam_data in pose_data.values()]) if pose_data else 0,
+        'total_cameras': len(cam_names),
+        'camera_names': cam_names,
+        'valid_person_ids': sorted(valid_global_persons),
+        'person_id_statistics': person_stats,
+        'pairwise_matches': {f"{k[0]}-{k[1]}": v for k, v in pairwise_matches.items()},
+        'global_mapping': {f"{k[0]}_{k[1]}": v for k, v in global_mapping.items()},
+        'filtering_criteria': {
+            'min_matched_cameras': min_matched_cameras,
+            'confidence_threshold': confidence_threshold,
+            'reprojection_threshold': reprojection_threshold
+        }
+    }
+    
+    with open(summary_file, 'w') as f:
+        json.dump(summary_data, f, indent=2)
+    
+    print(f"Sequence matching complete!")
+    print(f"Found {len(valid_global_persons)} global persons across {len(cam_names)} cameras")
+    print(f"Results saved to: {output_file}")
+    print(f"Summary statistics saved to: {summary_file}")
+    
+    return output_file
 

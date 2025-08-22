@@ -17,7 +17,7 @@ def optimize_sequence_torch(
     poses_3d_body,
     lambdas=[1.0, 1.0, 1.0, 1.0, 1.0],  # [reprojection, temporal, spatial, bmc, shape]
     use_bmc=False,
-    max_iter=50,
+    max_iter=100,
     hand_id_mapping=None,
     scale_by_bbox=True
 ):
@@ -451,6 +451,7 @@ def optimize_sequence_torch(
     # Initialize LBFGS optimizer
     optimizer = torch.optim.LBFGS(
         [x_tensor], 
+        lr=1,
         line_search_fn='strong_wolfe',
         max_iter=max_iter,
         tolerance_grad=1e-7,

@@ -100,7 +100,7 @@ def save_to_file(boxes, output_file):
                 f.write(f"{box[0]} {box[1]} {box[2]} {box[3]} {conf[i]} ")
             f.write("\n")
 
-def read_detection_file(filepath, resolution=None, original_resolution=None, with_confidence=False):
+def read_detection_file(filepath, resolution=None, original_resolution=None, with_confidence=False, sort_by_confidence=True, confidence_threshold=0.8):
     """Read detection file containing frame index and bounding boxes"""
     detections = {}
     stride = 5 if with_confidence else 4
@@ -109,11 +109,16 @@ def read_detection_file(filepath, resolution=None, original_resolution=None, wit
             values = list(map(float, line.strip().split()))
             frame_idx = int(values[0])
             boxes = []
+            confidences = []
             # Each box has 4 coordinates
             for i in range(1, len(values), stride):
                 boxes.append(values[i:i+4])
+                if with_confidence:
+                    confidences.append(values[i+4])
 
             boxes = np.array(boxes)
+            if with_confidence:
+                confidences = np.array(confidences)
 
             if resolution is not None and original_resolution is not None:
                 # Rescale bounding boxes to original resolution
@@ -121,7 +126,30 @@ def read_detection_file(filepath, resolution=None, original_resolution=None, wit
                 boxes[:, 1] *= resolution[1] / original_resolution[1]
                 boxes[:, 2] *= resolution[0] / original_resolution[0]
                 boxes[:, 3] *= resolution[1] / original_resolution[1]
-            detections[frame_idx] = boxes
+            if with_confidence:
+                # Filter boxes based on confidence threshold
+                valid_indices = np.where(confidences >= confidence_threshold)[0]
+                if len(valid_indices) == 0:
+                    boxes = np.array([])
+                    confidences = np.array([])
+                else:
+                    boxes = boxes[valid_indices]
+                    confidences = confidences[valid_indices]
+            if len(boxes) > 0:
+                detections[frame_idx] = (boxes, confidences) if with_confidence else boxes
+
+    if sort_by_confidence and with_confidence:
+        detections = dict(sorted(detections.items(), key=lambda item: np.mean(item[1][1]), reverse=True))
+    
+    if with_confidence:
+        detections_final = {}
+        # Remove confidence from detections
+        for frame_idx, (boxes, confidences) in detections.items():
+            if not np.all(boxes == 0):
+                detections_final[frame_idx] = boxes
+
+        return detections_final
+    
     return detections
 
 def prepare_video_frames(video_path, resample_to=None):
@@ -266,7 +294,7 @@ def process_video_wholebody_hands(video_name, data_dir, pose_dir, save_dir=None,
     json_path = os.path.join(pose_dir, f"{video_name}_wholebody.json")
     
     if save_dir is None:
-        save_dir = data_dir
+        save_dir = pose_dir
     
     if not os.path.exists(json_path):
         print(f"No wholebody JSON file found for {video_name}")
@@ -278,10 +306,15 @@ def process_video_wholebody_hands(video_name, data_dir, pose_dir, save_dir=None,
     
     # Initialize video capture for visualization
     cap = None
+    out_cap = None
     if show:
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             raise FileNotFoundError(f"Cannot open video file: {video_path}")
+        out_cap = cv2.VideoWriter(os.path.join(save_dir, f"{video_name}_initial_hand_boxes.mp4"), 
+                                    cv2.VideoWriter_fourcc(*'mp4v'), 30, 
+                                    (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), 
+                                     int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))))
     
     output_boxes = []
     
@@ -406,11 +439,15 @@ def process_video_wholebody_hands(video_name, data_dir, pose_dir, save_dir=None,
             cv2.imshow('Wholebody Hand Detections', frame)
             if cv2.waitKey(1) == 113:  # 'q' key
                 break
+            if out_cap is not None:
+                out_cap.write(frame)
                 
         print(f"Processing frame {frame_idx}", end='\r')
     
     # Save detection results to file
     if save_dir:
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir, exist_ok=True)
         output_file = os.path.join(save_dir, f"{video_name}_wholebody_hands.txt")
         with open(output_file, 'w+') as f:
             for boxes, conf, frame_idx in output_boxes:
@@ -496,10 +533,12 @@ def process_video_wholebody_hands_for_tracking(video_name, data_dir, detection_d
     inference_state = None
     frame_names = None
 
+    print(detections)
+
     # Process each frame with detections
     for frame_idx, boxes in detections.items():
         for box in boxes:
-            if (all_tracks is None or not box_tracked(all_tracks, frame_idx, box)) and obj_id < max_hands:
+            if not all(box == 0) and (all_tracks is None or not box_tracked(all_tracks, frame_idx, box)) and obj_id < max_hands:
                 print(f"Frame {frame_idx}: {box}")
                 print(f"Object ID: {obj_id}")
                 # Initialize tracker with first frame's boxes if not done yet

@@ -257,7 +257,49 @@ def img2video(output_dir, video_name, fps=30, pose_dir='pose/'):
     videoWrite.release()
 
 def pose2video(poses_3d_body, output_dir, video_name, poses_3d_hands=None, fps=30, xlim=None, ylim=None, zlim=None, 
-             left_wrist_index=9, right_wrist_index=10, render_body=True, dynamic_limits=False, use_wholebody=False):
+             left_wrist_index=9, right_wrist_index=10, render_body=True, dynamic_limits=False, use_wholebody=False,
+             multi_person=False, person_id=None):
+    """
+    Create a video of 3D pose visualization.
+    
+    Args:
+        poses_3d_body: 3D body poses - single person (array) or multi-person (dict)
+        output_dir: Directory to save the video
+        video_name: Name of the output video file
+        poses_3d_hands: 3D hand poses (optional)
+        fps: Frames per second for the video
+        xlim, ylim, zlim: Axis limits (optional)
+        left_wrist_index, right_wrist_index: Indices for wrist keypoints
+        render_body: Whether to render body keypoints
+        dynamic_limits: Whether to calculate limits dynamically
+        use_wholebody: Whether using wholebody model
+        multi_person: Whether this is multi-person data
+        person_id: Specific person ID to visualize (for multi-person mode)
+    """
+    
+    if multi_person:
+        if isinstance(poses_3d_body, dict):
+            if person_id is not None:
+                # Visualize specific person
+                if person_id in poses_3d_body:
+                    current_poses_3d_body = poses_3d_body[person_id]
+                    current_poses_3d_hands = poses_3d_hands[person_id] if poses_3d_hands and person_id in poses_3d_hands else None
+                else:
+                    print(f"Person ID {person_id} not found in poses data")
+                    return
+            else:
+                # Visualize all people together
+                return _pose2video_multi_person(poses_3d_body, output_dir, video_name, poses_3d_hands, fps, 
+                                              xlim, ylim, zlim, left_wrist_index, right_wrist_index, 
+                                              render_body, dynamic_limits, use_wholebody)
+        else:
+            # Single person data passed with multi_person=True
+            current_poses_3d_body = poses_3d_body
+            current_poses_3d_hands = poses_3d_hands
+    else:
+        # Single person mode
+        current_poses_3d_body = poses_3d_body
+        current_poses_3d_hands = poses_3d_hands
         
     fig = plt.figure()
     ax = plt.axes(projection='3d')
@@ -279,8 +321,8 @@ def pose2video(poses_3d_body, output_dir, video_name, poses_3d_hands=None, fps=3
         
         # Consider both body and hand points for dynamic limits
         if render_body:
-            for frame in range(len(poses_3d_body)):
-                valid_points = poses_3d_body[frame][~np.isnan(poses_3d_body[frame]).any(axis=1)]
+            for frame in range(len(current_poses_3d_body)):
+                valid_points = current_poses_3d_body[frame][~np.isnan(current_poses_3d_body[frame]).any(axis=1)]
                 if len(valid_points) > 0:
                     min_x = min(min_x, np.min(valid_points[:, 0]))
                     max_x = max(max_x, np.max(valid_points[:, 0]))
@@ -289,9 +331,9 @@ def pose2video(poses_3d_body, output_dir, video_name, poses_3d_hands=None, fps=3
                     min_z = min(min_z, np.min(valid_points[:, 2]))
                     max_z = max(max_z, np.max(valid_points[:, 2]))
             
-        if poses_3d_hands is not None:
-            for frame in range(len(poses_3d_hands)):
-                valid_points = poses_3d_hands[frame][~np.isnan(poses_3d_hands[frame]).any(axis=1)]
+        if current_poses_3d_hands is not None:
+            for frame in range(len(current_poses_3d_hands)):
+                valid_points = current_poses_3d_hands[frame][~np.isnan(current_poses_3d_hands[frame]).any(axis=1)]
                 if len(valid_points) > 0:
                     min_x = min(min_x, np.min(valid_points[:, 0]))
                     max_x = max(max_x, np.max(valid_points[:, 0]))
@@ -331,20 +373,20 @@ def pose2video(poses_3d_body, output_dir, video_name, poses_3d_hands=None, fps=3
     lines = []
     
     if render_body:
-        scat = ax.scatter3D(poses_3d_body[0, :, 0], poses_3d_body[0, :, 1], poses_3d_body[0, :, 2])
+        scat = ax.scatter3D(current_poses_3d_body[0, :, 0], current_poses_3d_body[0, :, 1], current_poses_3d_body[0, :, 2])
         for pair in keypoint_pairs:
             idx1, idx2 = pair
             if idx1 < num_model_keypoints and idx2 < num_model_keypoints:
-                x1, y1, z1 = poses_3d_body[0, idx1]
-                x2, y2, z2 = poses_3d_body[0, idx2]
+                x1, y1, z1 = current_poses_3d_body[0, idx1]
+                x2, y2, z2 = current_poses_3d_body[0, idx2]
                 lines.append(ax.plot([x1, x2], [y1, y2], zs=[z1,z2]))
             
     # Hand rendering setup
     scat_hands = None
     hands = []
-    if poses_3d_hands is not None:
-        num_hands = poses_3d_hands.shape[1] // num_keypoints_hands
-        scat_hands = ax.scatter3D(poses_3d_hands[0, :, 0], poses_3d_hands[0, :, 1], poses_3d_hands[0, :, 2])
+    if current_poses_3d_hands is not None:
+        num_hands = current_poses_3d_hands.shape[1] // num_keypoints_hands
+        scat_hands = ax.scatter3D(current_poses_3d_hands[0, :, 0], current_poses_3d_hands[0, :, 1], current_poses_3d_hands[0, :, 2])
         hands = []
         for i in range(num_hands):
             lines_hands = []
@@ -353,35 +395,195 @@ def pose2video(poses_3d_body, output_dir, video_name, poses_3d_hands=None, fps=3
                 if idx1 < num_keypoints_hands and idx2 < num_keypoints_hands:
                     idx1 += i*num_keypoints_hands
                     idx2 += i*num_keypoints_hands
-                    x1, y1, z1 = poses_3d_hands[0, idx1]
-                    x2, y2, z2 = poses_3d_hands[0, idx2]
+                    x1, y1, z1 = current_poses_3d_hands[0, idx1]
+                    x2, y2, z2 = current_poses_3d_hands[0, idx2]
                     lines_hands.append(ax.plot([x1, x2], [y1, y2], zs=[z1,z2]))   
             hands.append(lines_hands)    
     
     def update(frame_idx):
         # Update body if rendering is enabled
         if render_body and scat is not None:
-            scat._offsets3d = (poses_3d_body[frame_idx, :, 0], poses_3d_body[frame_idx, :, 1], poses_3d_body[frame_idx, :, 2])
+            scat._offsets3d = (current_poses_3d_body[frame_idx, :, 0], current_poses_3d_body[frame_idx, :, 1], current_poses_3d_body[frame_idx, :, 2])
             for pair, line in zip(keypoint_pairs, lines):
                 idx1, idx2 = pair
                 if idx1 < num_model_keypoints and idx2 < num_model_keypoints:
-                    line[0].set_data_3d(np.array([poses_3d_body[frame_idx, idx1], poses_3d_body[frame_idx, idx2]]).T)
+                    line[0].set_data_3d(np.array([current_poses_3d_body[frame_idx, idx1], current_poses_3d_body[frame_idx, idx2]]).T)
         
         # Update hands if available
-        if poses_3d_hands is not None and scat_hands is not None:
-            scat_hands._offsets3d = (poses_3d_hands[frame_idx, :, 0], poses_3d_hands[frame_idx, :, 1], poses_3d_hands[frame_idx, :, 2])
+        if current_poses_3d_hands is not None and scat_hands is not None:
+            scat_hands._offsets3d = (current_poses_3d_hands[frame_idx, :, 0], current_poses_3d_hands[frame_idx, :, 1], current_poses_3d_hands[frame_idx, :, 2])
             for i, hand in enumerate(hands):
                 for pair, line in zip(KEYPOINT_PAIRS_HANDS, hand):
                     idx1, idx2 = pair
                     if idx1 < num_keypoints_hands and idx2 < num_keypoints_hands:
                         idx1 += i*num_keypoints_hands
                         idx2 += i*num_keypoints_hands
-                        line[0].set_data_3d(np.array([poses_3d_hands[frame_idx, idx1], poses_3d_hands[frame_idx, idx2]]).T)
+                        line[0].set_data_3d(np.array([current_poses_3d_hands[frame_idx, idx1], current_poses_3d_hands[frame_idx, idx2]]).T)
 
-    ani = animation.FuncAnimation(fig, update, len(poses_3d_body))
+    ani = animation.FuncAnimation(fig, update, len(current_poses_3d_body))
 
     FFwriter = animation.FFMpegWriter(fps=fps, bitrate=1000)
     ani.save(os.path.join(output_dir, f'{video_name}.mp4'), writer=FFwriter)
+
+
+def _pose2video_multi_person(poses_3d_body_dict, output_dir, video_name, poses_3d_hands_dict=None, fps=30, 
+                            xlim=None, ylim=None, zlim=None, left_wrist_index=9, right_wrist_index=10, 
+                            render_body=True, dynamic_limits=False, use_wholebody=False):
+    """
+    Create a video visualization for all people together.
+    
+    Args:
+        poses_3d_body_dict: Dictionary {person_id: poses_3d_body}
+        poses_3d_hands_dict: Dictionary {person_id: poses_3d_hands} (optional)
+        Other parameters same as pose2video
+    """
+    import matplotlib.pyplot as plt
+    import matplotlib.animation as animation
+    import numpy as np
+    from helpers.definitions import KEYPOINT_PAIRS, WHOLEBODY_KEYPOINT_PAIRS, num_keypoints, num_wholebody_keypoints, num_keypoints_hands
+    
+    fig = plt.figure(figsize=(10, 10))
+    ax = plt.axes(projection='3d')
+    
+    # Select the appropriate keypoint pairs based on the model type
+    if use_wholebody:
+        keypoint_pairs = WHOLEBODY_KEYPOINT_PAIRS
+        num_model_keypoints = num_wholebody_keypoints
+    else:
+        keypoint_pairs = KEYPOINT_PAIRS
+        num_model_keypoints = num_keypoints
+    
+    # Get all person IDs
+    person_ids = list(poses_3d_body_dict.keys())
+    colors = plt.cm.Set1(np.linspace(0, 1, len(person_ids)))  # Different colors for each person
+    
+    # Calculate dynamic limits if requested
+    if dynamic_limits:
+        min_x, max_x = float('inf'), float('-inf')
+        min_y, max_y = float('inf'), float('-inf')
+        min_z, max_z = float('inf'), float('-inf')
+        
+        for person_id, poses_3d_body in poses_3d_body_dict.items():
+            if render_body:
+                for frame in range(len(poses_3d_body)):
+                    valid_points = poses_3d_body[frame][~np.isnan(poses_3d_body[frame]).any(axis=1)]
+                    if len(valid_points) > 0:
+                        min_x = min(min_x, np.min(valid_points[:, 0]))
+                        max_x = max(max_x, np.max(valid_points[:, 0]))
+                        min_y = min(min_y, np.min(valid_points[:, 1]))
+                        max_y = max(max_y, np.max(valid_points[:, 1]))
+                        min_z = min(min_z, np.min(valid_points[:, 2]))
+                        max_z = max(max_z, np.max(valid_points[:, 2]))
+                
+            if poses_3d_hands_dict and person_id in poses_3d_hands_dict:
+                poses_3d_hands = poses_3d_hands_dict[person_id]
+                for frame in range(len(poses_3d_hands)):
+                    valid_points = poses_3d_hands[frame][~np.isnan(poses_3d_hands[frame]).any(axis=1)]
+                    if len(valid_points) > 0:
+                        min_x = min(min_x, np.min(valid_points[:, 0]))
+                        max_x = max(max_x, np.max(valid_points[:, 0]))
+                        min_y = min(min_y, np.min(valid_points[:, 1]))
+                        max_y = max(max_y, np.max(valid_points[:, 1]))
+                        min_z = min(min_z, np.min(valid_points[:, 2]))
+                        max_z = max(max_z, np.max(valid_points[:, 2]))
+        
+        # Add some padding
+        padding = 0.1
+        x_range = max_x - min_x
+        y_range = max_y - min_y
+        z_range = max_z - min_z
+        
+        xlim = [min_x - padding * x_range, max_x + padding * x_range]
+        ylim = [min_y - padding * y_range, max_y + padding * y_range]
+        zlim = [min_z - padding * z_range, max_z + padding * z_range]
+    
+    # Set up the plot
+    if xlim: ax.set_xlim(xlim)
+    if ylim: ax.set_ylim(ylim)
+    if zlim: ax.set_zlim(zlim)
+    
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    ax.set_title('Multi-Person 3D Pose Visualization')
+    
+    # Initialize plot elements for each person
+    person_elements = {}
+    for i, person_id in enumerate(person_ids):
+        person_color = colors[i]
+        poses_3d_body = poses_3d_body_dict[person_id]
+        
+        # Body keypoints
+        body_points = ax.scatter([], [], [], c=[person_color], s=50, alpha=0.8, label=f'Person {person_id}')
+        
+        # Body skeleton lines
+        body_lines = []
+        for pair in keypoint_pairs:
+            line, = ax.plot([], [], [], color=person_color, alpha=0.6, linewidth=2)
+            body_lines.append(line)
+        
+        # Hand elements (if available)
+        hand_points = None
+        hand_lines = []
+        if poses_3d_hands_dict and person_id in poses_3d_hands_dict:
+            hand_points = ax.scatter([], [], [], c=[person_color], s=30, alpha=0.6, marker='^')
+            # Add hand skeleton lines if needed (simplified for now)
+        
+        person_elements[person_id] = {
+            'body_points': body_points,
+            'body_lines': body_lines,
+            'hand_points': hand_points,
+            'hand_lines': hand_lines,
+            'color': person_color
+        }
+    
+    # Add legend
+    ax.legend()
+    
+    # Get the maximum number of frames across all persons
+    max_frames = max(len(poses_3d_body_dict[pid]) for pid in person_ids)
+    
+    def update(frame_idx):
+        for person_id in person_ids:
+            poses_3d_body = poses_3d_body_dict[person_id]
+            elements = person_elements[person_id]
+            
+            if frame_idx < len(poses_3d_body):
+                current_pose = poses_3d_body[frame_idx]
+                
+                # Update body keypoints
+                valid_mask = ~np.isnan(current_pose).any(axis=1)
+                valid_pose = current_pose[valid_mask]
+                
+                if len(valid_pose) > 0:
+                    elements['body_points']._offsets3d = (valid_pose[:, 0], valid_pose[:, 1], valid_pose[:, 2])
+                
+                # Update body skeleton lines
+                for j, pair in enumerate(keypoint_pairs):
+                    if j < len(elements['body_lines']):
+                        idx1, idx2 = pair
+                        if (idx1 < len(current_pose) and idx2 < len(current_pose) and 
+                            not np.isnan(current_pose[idx1]).any() and not np.isnan(current_pose[idx2]).any()):
+                            elements['body_lines'][j].set_data_3d(np.array([current_pose[idx1], current_pose[idx2]]).T)
+                        else:
+                            elements['body_lines'][j].set_data_3d([[], [], []])
+                
+                # Update hands if available
+                if poses_3d_hands_dict and person_id in poses_3d_hands_dict:
+                    poses_3d_hands = poses_3d_hands_dict[person_id]
+                    if frame_idx < len(poses_3d_hands):
+                        current_hands = poses_3d_hands[frame_idx]
+                        valid_hands_mask = ~np.isnan(current_hands).any(axis=1)
+                        valid_hands = current_hands[valid_hands_mask]
+                        
+                        if len(valid_hands) > 0 and elements['hand_points']:
+                            elements['hand_points']._offsets3d = (valid_hands[:, 0], valid_hands[:, 1], valid_hands[:, 2])
+    
+    ani = animation.FuncAnimation(fig, update, max_frames)
+    
+    FFwriter = animation.FFMpegWriter(fps=fps, bitrate=1000)
+    ani.save(os.path.join(output_dir, f'{video_name}.mp4'), writer=FFwriter)
+    print(f"Multi-person video saved: {os.path.join(output_dir, f'{video_name}.mp4')}")
 
 
 def overlay_keypoints_on_video(video_path, poses_2d, output_path, wholebody=False):

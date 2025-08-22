@@ -19,6 +19,9 @@ from mmpose.registry import VISUALIZERS
 import mmcv
 from ultralytics import YOLO
 
+# Import SapiensPose for wholebody pose estimation - uses MMPose API
+SAPIENS_AVAILABLE = True  # We'll use the MMPose interface with SapiensPose config
+
 # Remove the direct imports of SAM and TAM
 # Global variables for models
 predictor = None
@@ -51,8 +54,8 @@ YOLO_WEIGHTS = "checkpoints/hands/detection/cross-hands-yolov4-tiny.weights"
 SAM_CHECKPOINT = "./checkpoints/sam/sam2.1_hiera_small.pt"
 SAM_CONFIG = "configs/sam2.1/sam2.1_hiera_s.yaml"
 
-EFFICIENTTAM_CHECKPOINT = "./checkpoints/efficienttam/efficienttam_s_2.pt"
-EFFICIENTTAM_CONFIG = "configs/efficienttam/efficienttam_s_2.yaml"
+EFFICIENTTAM_CHECKPOINT = "./checkpoints/efficienttam/efficienttam_ti_512x512.pt"
+EFFICIENTTAM_CONFIG = "configs/efficienttam/efficienttam_ti_512x512.yaml"
 
 # YOLO Rohan model paths
 YOLO_PERSON_WEIGHTS = 'checkpoints/yolo/yolo11l.pt'
@@ -67,6 +70,11 @@ BODY_POSE_WEIGHTS = 'checkpoints/body/pose/rtmpose-x_simcc-body7_pt-body7-halpe2
 
 WHOLEBODY_POSE_CONFIG = 'configs/wholebody_2d_keypoint/rtmpose/coco-wholebody/rtmpose-l_8xb32-270e_coco-wholebody-384x288.py'
 WHOLEBODY_POSE_WEIGHTS = 'checkpoints/wholebody/rtmpose-l_simcc-coco-wholebody_pt-aic-coco_270e-384x288-eaeb96c8_20230125.pth'
+
+# SapiensPose model paths - using 1B parameter model
+SAPIENS_POSE_CHECKPOINT = 'checkpoints/sapiens/sapiens_1b_coco_wholebody_best_coco_wholebody_AP_727.pth'
+SAPIENS_POSE_CONFIG = 'configs/wholebody_2d_keypoint/sapiens/sapiens_1b-210e_coco_wholebody-1024x768.py'
+
 # Global variables for pose estimators
 pose_estimator_hand = None
 pose_estimator_body = None
@@ -74,6 +82,7 @@ visualizer_hand = None
 visualizer_body = None
 pose_estimator_wholebody = None
 visualizer_wholebody = None
+sapiens_pose_estimator = None  # SapiensPose model
 
 # Additional global variables
 yolo_person = None
@@ -110,15 +119,17 @@ if device.type == "cuda":
 
 '''      MODEL INSTANTIATIONS       '''
 
-def initialize_models(use_tam: bool, use_wholebody:bool=False):
+def initialize_models(use_tam: bool, use_wholebody:bool=False, use_sapiens:bool=False):
     """Initialize all models based on the tracker choice.
     
     Args:
         use_tam (bool): If True, use EfficientTAM tracker. If False, use SAM tracker.
+        use_wholebody (bool): If True, initialize wholebody pose estimator.
+        use_sapiens (bool): If True, use SapiensPose instead of default wholebody model.
     """
     global predictor, detector, detector_person, yolo_detector
     global pose_estimator_hand, pose_estimator_body, visualizer_hand, visualizer_body
-    global yolo_person, yolo_hand
+    global yolo_person, yolo_hand, sapiens_pose_estimator
     if use_wholebody:
         global pose_estimator_wholebody, visualizer_wholebody    
     # Initialize detectors
@@ -162,11 +173,29 @@ def initialize_models(use_tam: bool, use_wholebody:bool=False):
         cfg_options=dict(model=dict(test_cfg=dict(output_heatmaps=False))))
 
     if use_wholebody:   
-        pose_estimator_wholebody = init_pose_estimator(
-            WHOLEBODY_POSE_CONFIG,
-            WHOLEBODY_POSE_WEIGHTS,
-            device='cuda',
-            cfg_options=dict(model=dict(test_cfg=dict(output_heatmaps=False))))
+        if use_sapiens and SAPIENS_AVAILABLE:
+            # Initialize SapiensPose for wholebody pose estimation
+            try:
+                print("Initializing SapiensPose 1B model...")
+                sapiens_pose_estimator = init_pose_estimator(
+                    SAPIENS_POSE_CONFIG,
+                    SAPIENS_POSE_CHECKPOINT,
+                    device='cuda',
+                    cfg_options=dict(model=dict(test_cfg=dict(output_heatmaps=False)))
+                )
+                print("SapiensPose model initialized successfully")
+            except Exception as e:
+                print(f"Warning: Failed to initialize SapiensPose: {e}")
+                sapiens_pose_estimator = None
+        else:
+            # Fall back to RTMPose wholebody model
+            pose_estimator_wholebody = init_pose_estimator(
+                WHOLEBODY_POSE_CONFIG,
+                WHOLEBODY_POSE_WEIGHTS,
+                device='cuda',
+                cfg_options=dict(model=dict(test_cfg=dict(output_heatmaps=False))))
+            print("RTMPose wholebody model initialized")
+            sapiens_pose_estimator = None
 
     # Configure hand pose visualizer
     pose_estimator_hand.cfg.visualizer.radius = POSE_VIS_RADIUS
@@ -182,8 +211,8 @@ def initialize_models(use_tam: bool, use_wholebody:bool=False):
     visualizer_body = VISUALIZERS.build(pose_estimator_body.cfg.visualizer)
     visualizer_body.set_dataset_meta(pose_estimator_body.dataset_meta, skeleton_style='mmpose')
     
-    # Configure SAPIENS pose visualizer
-    if use_wholebody:
+    # Configure wholebody pose visualizer (only for RTMPose, not SapiensPose)
+    if use_wholebody and not (use_sapiens and SAPIENS_AVAILABLE):
         pose_estimator_wholebody.cfg.visualizer.radius = POSE_VIS_RADIUS
         pose_estimator_wholebody.cfg.visualizer.alpha = POSE_VIS_ALPHA
         pose_estimator_wholebody.cfg.visualizer.line_width = POSE_VIS_LINE_WIDTH
@@ -200,6 +229,10 @@ def initialize_models(use_tam: bool, use_wholebody:bool=False):
     
     print(f"Models initialized with {'EfficientTAM' if use_tam else 'SAM'} tracker")
     print("Pose estimation models initialized")
+    if use_wholebody and use_sapiens and SAPIENS_AVAILABLE:
+        print("SapiensPose 1B wholebody model ready")
+    elif use_wholebody:
+        print("RTMPose wholebody model ready")
     print("YOLO models initialized")
 
 def check_models_initialized():
@@ -371,7 +404,7 @@ def add_object(video_dir, input_box=None, point_coords=None, point_labels=None, 
     # Get frame names
     frame_names = [
         p for p in os.listdir(video_dir)
-        if os.path.splitext(p)[-1] in [".jpg", ".jpeg", ".JPG", ".JPEG"]
+        if os.path.splitext(p)[-1] in [".jpg", ".jpeg", ".JPG", ".JPEG", ".png", ".PNG"]
     ]
     frame_names.sort(key=lambda p: int(os.path.splitext(p)[0]))
 
@@ -747,7 +780,6 @@ def detect_body(file):
     check_models_initialized()
     
     if filetype.is_image(file):
-        print(file)
         det_result = inference_detector(detector_person, file)
         pred_instance = det_result.pred_instances.cpu().numpy()
         bboxes = np.concatenate(
@@ -923,74 +955,157 @@ def estimate_pose(img, bbox, pose_type='hand', show=False, write_img=None):
         return data_samples.get('pred_instances', None)
     
     elif pose_type == 'wholebody':
-        # Predict keypoints using SAPIENS wholebody model
-        pose_results = inference_topdown(pose_estimator_wholebody, img, bbox)
-        data_samples = merge_data_samples(pose_results)
-        
-        # Visualize if requested
-        if visualizer_wholebody is not None and show:
-            if write_img is None:
-                write_img = img
-            if isinstance(write_img, str):
-                write_img = mmcv.imread(write_img, channel_order='rgb')
-            elif isinstance(write_img, np.ndarray):
-                write_img = mmcv.bgr2rgb(write_img)
-
-            visualizer_wholebody.add_datasample(
-                'result',
-                write_img,
-                data_sample=data_samples,
-                draw_gt=False,
-                draw_heatmap=False,
-                draw_bbox=True,
-                show_kpt_idx=False,
-                skeleton_style='mmpose',
-                show=show,
-                wait_time=0.1,
-                kpt_thr=POSE_KPT_THRESHOLD)
-        
-        # Get the predicted instances from the data sample
-        pred_instances = data_samples.get('pred_instances', None)
-        
-        if pred_instances is None:
-            return None, None, None
-        
-        # Extract body, left hand, and right hand keypoints
-        # Based on the COCO-WholeBody dataset format used by SAPIENS
-        # Body keypoints are the first 17 points (0-16)
-        # Left hand starts at index 91 and has 21 keypoints (91-111)
-        # Right hand starts at index 112 and has 21 keypoints (112-132)
-        
-        # Create a copy of the instances to avoid modifying the original
-        body_instances = pred_instances.clone()
-        left_hand_instances = pred_instances.clone()
-        right_hand_instances = pred_instances.clone()
-
-        # Extract body keypoints (first 17 keypoints)
-        body_keypoints = pred_instances.keypoints[:, :17, :]
-        body_instances.keypoints = body_keypoints
-        body_instances.keypoint_scores = pred_instances.keypoint_scores[:, :17]
-        
-        # Extract left hand keypoints (indices 91-111)
-        if pred_instances.keypoints.shape[1] > 111:
-            left_hand_keypoints = pred_instances.keypoints[:, 91:112, :]
-            left_hand_instances.keypoints = left_hand_keypoints
-            left_hand_instances.keypoint_scores = pred_instances.keypoint_scores[:, 91:112]
+        # Check if SapiensPose is available and initialized
+        if sapiens_pose_estimator is not None:
+            # Use SapiensPose for wholebody estimation
+            return estimate_pose_sapiens(img, bbox, show, write_img)
         else:
-            left_hand_instances = None
+            # Fall back to RTMPose wholebody model
+            pose_results = inference_topdown(pose_estimator_wholebody, img, bbox)
+            data_samples = merge_data_samples(pose_results)
             
-        # Extract right hand keypoints (indices 112-132)
-        if pred_instances.keypoints.shape[1] > 132:
-            right_hand_keypoints = pred_instances.keypoints[:, 112:133, :]
-            right_hand_instances.keypoints = right_hand_keypoints
-            right_hand_instances.keypoint_scores = pred_instances.keypoint_scores[:, 112:133]       
-        else:
-            right_hand_instances = None
+        
+            # Visualize if requested
+            if visualizer_wholebody is not None and show:
+                if write_img is None:
+                    write_img = img
+                if isinstance(write_img, str):
+                    write_img = mmcv.imread(write_img, channel_order='rgb')
+                elif isinstance(write_img, np.ndarray):
+                    write_img = mmcv.bgr2rgb(write_img)
+
+                visualizer_wholebody.add_datasample(
+                    'result',
+                    write_img,
+                    data_sample=data_samples,
+                    draw_gt=False,
+                    draw_heatmap=False,
+                    draw_bbox=True,
+                    show_kpt_idx=False,
+                    skeleton_style='mmpose',
+                    show=show,
+                    wait_time=0.1,
+                    kpt_thr=POSE_KPT_THRESHOLD)
             
-        return body_instances, left_hand_instances, right_hand_instances
+            # Get the predicted instances from the data sample
+            pred_instances = data_samples.get('pred_instances', None)
+            
+            if pred_instances is None:
+                return None, None, None
+            
+            # Extract body, left hand, and right hand keypoints
+            # Based on the COCO-WholeBody dataset format used by SAPIENS
+            # Body keypoints are the first 17 points (0-16)
+            # Left hand starts at index 91 and has 21 keypoints (91-111)
+            # Right hand starts at index 112 and has 21 keypoints (112-132)
+            
+            # Create a copy of the instances to avoid modifying the original
+            body_instances = pred_instances.clone()
+            left_hand_instances = pred_instances.clone()
+            right_hand_instances = pred_instances.clone()
+
+            # Extract body keypoints (first 17 keypoints)
+            body_keypoints = pred_instances.keypoints[:, :17, :]
+            body_instances.keypoints = body_keypoints
+            body_instances.keypoint_scores = pred_instances.keypoint_scores[:, :17]
+            
+            # Extract left hand keypoints (indices 91-111)
+            if pred_instances.keypoints.shape[1] > 111:
+                left_hand_keypoints = pred_instances.keypoints[:, 91:112, :]
+                left_hand_instances.keypoints = left_hand_keypoints
+                left_hand_instances.keypoint_scores = pred_instances.keypoint_scores[:, 91:112]
+            else:
+                left_hand_instances = None
+                
+            # Extract right hand keypoints (indices 112-132)
+            if pred_instances.keypoints.shape[1] > 132:
+                right_hand_keypoints = pred_instances.keypoints[:, 112:133, :]
+                right_hand_instances.keypoints = right_hand_keypoints
+                right_hand_instances.keypoint_scores = pred_instances.keypoint_scores[:, 112:133]       
+            else:
+                right_hand_instances = None
+                
+            return body_instances, left_hand_instances, right_hand_instances
         
     else:
-        raise ValueError(f"Invalid pose_type: {pose_type}. Must be 'hand', 'body', or 'sapiens'.")
+        raise ValueError(f"Invalid pose_type: {pose_type}. Must be 'hand', 'body', or 'wholebody'.")
+
+def estimate_pose_sapiens(img, bbox, show=False, write_img=None):
+    """Estimate wholebody pose using SapiensPose model.
+    
+    Args:
+        img: Input image (path or numpy array)
+        bbox: Bounding box coordinates [[x1,y1,x2,y2]]
+        show: Whether to show visualization
+        write_img: Optional image to draw visualization on
+        
+    Returns:
+        Tuple of (body_instances, left_hand_instances, right_hand_instances) 
+        Each containing keypoints and confidence scores
+    """
+    if sapiens_pose_estimator is None:
+        raise RuntimeError("SapiensPose model not initialized. Call initialize_models with use_sapiens=True.")
+    
+    # Ensure bbox is in correct format (N,4)
+    if isinstance(bbox, np.ndarray):
+        bbox = bbox.reshape(1, -1) if bbox.size == 4 else bbox
+    elif isinstance(bbox, list) and len(bbox) > 0:
+        # Convert list to numpy array
+        bbox = np.array(bbox)
+        if bbox.ndim == 1:
+            bbox = bbox.reshape(1, -1)
+
+    # Predict keypoints using SAPIENS wholebody model
+    with torch.inference_mode():
+        pose_results = inference_topdown(sapiens_pose_estimator, img, bbox)
+    
+    data_samples = merge_data_samples(pose_results)
+    
+    # Get the predicted instances from the data sample
+    pred_instances = data_samples.get('pred_instances', None)
+    
+    if pred_instances is None:
+        return None, None, None
+    
+    # Extract body, left hand, and right hand keypoints
+    # Based on the COCO-WholeBody dataset format used by SAPIENS
+    # Body keypoints are the first 17 points (0-16)
+    # Left hand starts at index 91 and has 21 keypoints (91-111)
+    # Right hand starts at index 112 and has 21 keypoints (112-132)
+    
+    # Create a copy of the instances to avoid modifying the original
+    body_instances = pred_instances.clone()
+    left_hand_instances = pred_instances.clone()
+    right_hand_instances = pred_instances.clone()
+    
+    # Extract body keypoints (first 17 keypoints)
+    if pred_instances.keypoints.shape[1] > 17:
+        body_keypoints = pred_instances.keypoints[:, :17, :]
+        body_keypoint_scores = pred_instances.keypoint_scores[:, :17]
+        body_instances.keypoints = body_keypoints
+        body_instances.keypoint_scores = body_keypoint_scores
+    else:
+        body_instances = None
+        
+    # Extract left hand keypoints (indices 91-111)
+    if pred_instances.keypoints.shape[1] > 111:
+        left_hand_keypoints = pred_instances.keypoints[:, 91:112, :]
+        left_hand_keypoint_scores = pred_instances.keypoint_scores[:, 91:112]
+        left_hand_instances.keypoints = left_hand_keypoints
+        left_hand_instances.keypoint_scores = left_hand_keypoint_scores
+    else:
+        left_hand_instances = None
+        
+    # Extract right hand keypoints (indices 112-132)
+    if pred_instances.keypoints.shape[1] > 132:
+        right_hand_keypoints = pred_instances.keypoints[:, 112:133, :]
+        right_hand_keypoint_scores = pred_instances.keypoint_scores[:, 112:133]
+        right_hand_instances.keypoints = right_hand_keypoints
+        right_hand_instances.keypoint_scores = right_hand_keypoint_scores
+    else:
+        right_hand_instances = None
+        
+    return body_instances, left_hand_instances, right_hand_instances
 
 '''      NEW ROHAN DETECTION FUNCTIONS       '''
 

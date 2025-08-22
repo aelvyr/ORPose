@@ -6,7 +6,7 @@ from helpers.hand_transform import orient_canonical_hand
 from helpers.camera import project_points
 from helpers.pose_construction import match_hand_poses
 
-def triangulate_hand_keypoints(hand_poses_2d, camera_intrinsics, camera_extrinsics, camera_matrices, distortion_coeffs, poses_3d_body, frame_idx=0, hand_id_mapping=None, num_keypoints_hands=21):
+def triangulate_hand_keypoints(hand_poses_2d, camera_intrinsics, camera_extrinsics, camera_matrices, distortion_coeffs, frame_idx=0, hand_id_mapping=None, num_keypoints_hands=21, multi_person=False, person_id=None):
     """
     Triangulate 3D hand keypoints from 2D observations across multiple cameras using weighted triangulation.
     
@@ -16,10 +16,11 @@ def triangulate_hand_keypoints(hand_poses_2d, camera_intrinsics, camera_extrinsi
         camera_extrinsics: Camera extrinsic parameters
         camera_matrices: Camera projection matrices
         distortion_coeffs: Camera distortion coefficients
-        poses_3d_body: 3D body poses
         frame_idx: Current frame index
         hand_id_mapping: Optional dictionary mapping camera name to {obj_id: hand_side}, where hand_side is 0 for left and 1 for right
         num_keypoints_hands: Number of keypoints per hand
+        multi_person: Whether using multi-person mode
+        person_id: Person ID for multi-person mode
         
     Returns:
         Triangulated 3D hand keypoints
@@ -28,65 +29,31 @@ def triangulate_hand_keypoints(hand_poses_2d, camera_intrinsics, camera_extrinsi
     left_hand_2d = {}  # camera_name -> 2D keypoints for left hand
     right_hand_2d = {}  # camera_name -> 2D keypoints for right hand
     
-    if hand_id_mapping is None:
-        # Use matching to determine left/right hands
-        
-        # First create initial oriented hands to match 2D detections to left/right hand
-        from helpers.definitions import CANONICAL_HAND_POSE_3D
-        oriented_hands = np.concatenate([
-            orient_canonical_hand(CANONICAL_HAND_POSE_3D, poses_3d_body[frame_idx], side='left'),
-            orient_canonical_hand(CANONICAL_HAND_POSE_3D, poses_3d_body[frame_idx], side='right')
-        ])
-        
-        # Match detected hands to left/right hands
-        for cam_name, hand_pose_2d in hand_poses_2d.items():
-            if frame_idx >= len(hand_pose_2d) or not hand_pose_2d[frame_idx]:
-                continue
-                
-            (best_match1, min_error1), (best_match2, min_error2) = match_hand_poses(
-                oriented_hands, hand_pose_2d[frame_idx], 
-                camera_intrinsics[cam_name].reshape(3, 3),
-                camera_extrinsics[cam_name][0], camera_extrinsics[cam_name][1],
-                distortion_coeffs[cam_name], just_wrist=False
-            )
+    # Use provided mapping to assign hands directly
+    for cam_name, hand_pose_2d in hand_poses_2d.items():
+        if frame_idx >= len(hand_pose_2d) or not hand_pose_2d[frame_idx]:
+            continue
             
-            if best_match1 is not None:
-                left_hand_2d[cam_name] = {
-                    'keypoints': hand_pose_2d[frame_idx][best_match1].keypoints.squeeze(),
-                    'scores': hand_pose_2d[frame_idx][best_match1].keypoint_scores.squeeze()
-                }
-                
-            if best_match2 is not None:
-                right_hand_2d[cam_name] = {
-                    'keypoints': hand_pose_2d[frame_idx][best_match2].keypoints.squeeze(),
-                    'scores': hand_pose_2d[frame_idx][best_match2].keypoint_scores.squeeze()
-                }
-    else:
-        # Use provided mapping to assign hands directly
-        for cam_name, hand_pose_2d in hand_poses_2d.items():
-            if frame_idx >= len(hand_pose_2d) or not hand_pose_2d[frame_idx]:
-                continue
-                
-            # Get the mapping for this camera
-            cam_mapping = hand_id_mapping.get(cam_name, {})
+        # Get the mapping for this camera
+        cam_mapping = hand_id_mapping.get(cam_name, {})
+        
+        # Process each detected hand
+        for obj_id, hand_data in hand_pose_2d[frame_idx].items():
+            # Check if we have a valid hand detection
             
-            # Process each detected hand
-            for obj_id, hand_data in hand_pose_2d[frame_idx].items():
-                # Check if we have a valid hand detection
-                
-                # Check if this object ID is in the mapping
-                if obj_id in cam_mapping:
-                    # 0 = left hand, 1 = right hand
-                    if cam_mapping[obj_id] == 0:
-                        left_hand_2d[cam_name] = {
-                            'keypoints': hand_data.keypoints.squeeze(),
-                            'scores': hand_data.keypoint_scores.squeeze()
-                        }
-                    elif cam_mapping[obj_id] == 1:
-                        right_hand_2d[cam_name] = {
-                            'keypoints': hand_data.keypoints.squeeze(),
-                            'scores': hand_data.keypoint_scores.squeeze()
-                        }
+            # Check if this object ID is in the mapping
+            if obj_id in cam_mapping:
+                # 0 = left hand, 1 = right hand
+                if cam_mapping[obj_id] == 0:
+                    left_hand_2d[cam_name] = {
+                        'keypoints': hand_data.keypoints.squeeze(),
+                        'scores': hand_data.keypoint_scores.squeeze()
+                    }
+                elif cam_mapping[obj_id] == 1:
+                    right_hand_2d[cam_name] = {
+                        'keypoints': hand_data.keypoints.squeeze(),
+                        'scores': hand_data.keypoint_scores.squeeze()
+                    }
     
     # Triangulate each keypoint for left and right hand
     left_hand_3d = np.zeros((num_keypoints_hands, 3))
@@ -198,7 +165,7 @@ def triangulate_hand_keypoints(hand_poses_2d, camera_intrinsics, camera_extrinsi
         hand_3d = np.nan_to_num(hand_3d, nan=0.0)
     return hand_3d
 
-def identify_hand_ids(hand_poses_2d, video_paths, camera_intrinsics, camera_extrinsics, distortion_coeffs, poses_3d_body, matching_threshold=50, num_frames=None, visualize=False, pose_output_dir=None):
+def identify_hand_ids(hand_poses_2d, video_paths, camera_intrinsics, camera_extrinsics, distortion_coeffs, poses_3d_body, matching_threshold=50, num_frames=None, visualize=False, pose_output_dir=None, multi_person=False, person_id=None):
     """
     Determine which object ID corresponds to which hand (left/right) by comparing tracked hands
     with wholebody pose estimation or canonical hand projections.
@@ -209,15 +176,27 @@ def identify_hand_ids(hand_poses_2d, video_paths, camera_intrinsics, camera_extr
         camera_intrinsics: Dictionary of camera intrinsic matrices
         camera_extrinsics: Dictionary of camera extrinsic parameters
         distortion_coeffs: Dictionary of camera distortion coefficients
-        poses_3d_body: 3D body poses for each frame
+        poses_3d_body: 3D body poses for each frame (dict for multi-person, array for single-person)
         matching_threshold: Maximum distance for a match to be considered valid
         num_frames: Maximum number of frames to process (optional)
         visualize: Whether to visualize the matching (optional)
         pose_output_dir: Directory containing precomputed wholebody JSON files (optional)
+        multi_person: Whether using multi-person mode
+        person_id: Person ID for multi-person mode
     
     Returns:
         Dictionary mapping camera names to dictionaries mapping object IDs to hand sides (0=left, 1=right)
     """    
+    # Get the appropriate body poses for processing
+    if multi_person:
+        if person_id is None:
+            raise ValueError("person_id must be provided in multi-person mode")
+        if person_id not in poses_3d_body:
+            raise ValueError(f"Person ID {person_id} not found in poses_3d_body")
+        current_body_poses = poses_3d_body[person_id]
+    else:
+        current_body_poses = poses_3d_body
+    
     # Initialize variables to store voting results per camera
     results = {}  # {cam_name: {obj_id: hand_side}}
     
@@ -227,6 +206,8 @@ def identify_hand_ids(hand_poses_2d, video_paths, camera_intrinsics, camera_extr
         max_frames = 0
         for cam_name, cam_poses in hand_poses_2d.items():
             max_frames = max(max_frames, len(cam_poses))
+        # Also consider body poses length
+        max_frames = min(max_frames, len(current_body_poses))
         num_frames = max_frames
     
     print(f"Processing {num_frames} frames for hand ID matching...")
@@ -367,21 +348,21 @@ def identify_hand_ids(hand_poses_2d, video_paths, camera_intrinsics, camera_extr
             # If we don't have valid hand detections, use canonical hands
             if not has_left_hand:
                 # Project canonical hands
-                if frame_idx < len(poses_3d_body):
+                if frame_idx < len(current_body_poses):
                     # Create canonical hands based on 3D body pose
                     if not has_left_hand:
                         from helpers.definitions import CANONICAL_HAND_POSE_3D
-                        left_canonical = orient_canonical_hand(CANONICAL_HAND_POSE_3D, poses_3d_body[frame_idx], side='left')
+                        left_canonical = orient_canonical_hand(CANONICAL_HAND_POSE_3D, current_body_poses[frame_idx], side='left')
                         left_hand_keypoints = project_points(left_canonical, cam_intrinsics, cam_rotation, cam_translation, cam_distortion).squeeze()
                         has_left_hand = True
                     print("Using canonical left hand")
             if not has_right_hand:
                 # Project canonical hands
-                if frame_idx < len(poses_3d_body):
+                if frame_idx < len(current_body_poses):
                     # Create canonical hands based on 3D body pose
                     if not has_right_hand:
                         from helpers.definitions import CANONICAL_HAND_POSE_3D
-                        right_canonical = orient_canonical_hand(CANONICAL_HAND_POSE_3D, poses_3d_body[frame_idx], side='right')
+                        right_canonical = orient_canonical_hand(CANONICAL_HAND_POSE_3D, current_body_poses[frame_idx], side='right')
                         right_hand_keypoints = project_points(right_canonical, cam_intrinsics, cam_rotation, cam_translation, cam_distortion).squeeze()
                         has_right_hand = True
                     print("Using canonical right hand")
