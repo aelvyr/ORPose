@@ -13,5 +13,6 @@ configs/
 camera_poses/
 vector_plots/
 labeled_poses/
+predictions_2d/
 
 __pycache__/

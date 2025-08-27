@@ -229,7 +229,7 @@ def read_keypoints_mmpose(folder_path, cam_names, num_frames, suffix, num_body_k
                         frames_data['body'][frame_idx][camera_idx] = keypoints_body
 
                     except Exception as e:
-                        print(f"body keypoints could not be accessed for {frame_idx}")
+                        print(f"body keypoints could not be accessed for frame {frame_idx}")
                         print(e)
                     
                 if hands:

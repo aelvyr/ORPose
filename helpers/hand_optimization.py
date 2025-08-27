@@ -8,13 +8,15 @@ from helpers.pose_construction import match_hand_poses
 
 bmc = BMCLoss(1, 1, 1)
 
-def optimize_hand_pose(initial_pose, filtered_hand_poses_2d, camera_intrinsics, camera_extrinsics, distortion_coeffs, previous_pose=None, lambdas=[1.0, 50.0, 3.0], scale_by_bbox=True):
+def optimize_hand_pose(initial_pose, filtered_hand_poses_2d, camera_intrinsics, camera_extrinsics, distortion_coeffs, previous_pose=None, lambdas=[1.0, 30.0, 50.0, 20.0, 5.0], scale_by_bbox=True, wrist_position=None):
     """
     Optimize 3D hand pose with BMC constraints using PyTorch operations and autograd.
     """
     # Convert inputs to torch tensors
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
+    if wrist_position is not None:
+        wrist_position_tensor = torch.tensor(wrist_position, dtype=torch.float32, device=device)
     # Initialize the optimization variable as a PyTorch tensor requiring gradients
     x_tensor = torch.tensor(initial_pose.flatten(), dtype=torch.float32, device=device, requires_grad=True)
     
@@ -46,7 +48,7 @@ def optimize_hand_pose(initial_pose, filtered_hand_poses_2d, camera_intrinsics, 
             bbox_height = max_y - min_y
             bbox_size = torch.sqrt(bbox_width * bbox_height)
         else:
-            bbox_size = torch.tensor(100.0, device=device)  # Default value if no valid keypoints
+            bbox_size = torch.tensor(0.0, device=device)  # Default value if no valid keypoints
         
         camera_params[cam_name] = {
             'intrinsics': intr,
@@ -112,7 +114,7 @@ def optimize_hand_pose(initial_pose, filtered_hand_poses_2d, camera_intrinsics, 
         # Validate result for NaN values
         if not safe_tensor(result, "projected points"):
             # Replace NaN values with a default value to allow optimization to continue
-            result = torch.nan_to_num(result, nan=0.0, posinf=1e6, neginf=-1e6)
+            result = torch.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
             
         return result
     
@@ -125,8 +127,9 @@ def optimize_hand_pose(initial_pose, filtered_hand_poses_2d, camera_intrinsics, 
             print("Input parameters contain NaN or Inf values")
         
         # Reprojection loss
-        repr_loss = 0.0
-        total_score = 0.0
+        repr_loss = torch.tensor(0.0, device=device)
+        total_score = torch.tensor(0.0, device=device)
+        num_cams = 0
         
         for cam_name, params in camera_params.items():
             # Project 3D points to 2D using our PyTorch-based function
@@ -140,8 +143,11 @@ def optimize_hand_pose(initial_pose, filtered_hand_poses_2d, camera_intrinsics, 
             
             # Calculate reprojection error with valid keypoints
             valid_mask = params['keypoint_scores'] > 0.1
-            
+            valid_projection = (projected_points > 0.0).any(dim=1)
+            valid_mask = valid_mask & valid_projection
+
             if torch.any(valid_mask) and params['bbox_size'] > 0.0:
+                num_cams += 1
                 # Calculate distance between projected and observed keypoints
                 error = torch.norm(
                     projected_points[valid_mask] - params['keypoints'][valid_mask],
@@ -152,45 +158,65 @@ def optimize_hand_pose(initial_pose, filtered_hand_poses_2d, camera_intrinsics, 
                 # Make sure bbox_size is not too small to avoid division by very small numbers
                 bbox_size = torch.max(params['bbox_size'], torch.tensor(1.0, device=device))
                 scaled_error = error / bbox_size * 100.0  # Multiply by 100 to maintain similar scale
-                
+                valid_errors = ~torch.isnan(scaled_error)
+                #valid_errors = valid_errors & (scaled_error < 500.0)
+
                 # Check for NaNs in the error calculation
                 if verbose and not safe_tensor(scaled_error, f"scaled error for camera {cam_name}"):
                     print(f"Error values causing NaN: {error}")
                     print(f"Bbox size: {bbox_size}")
                 
                 # Weight error by keypoint scores
-                weighted_error = scaled_error * params['keypoint_scores'][valid_mask]
+                weighted_error = scaled_error[valid_errors] * params['keypoint_scores'][valid_mask][valid_errors]
                 repr_loss += torch.sum(weighted_error)
-                total_score += torch.sum(params['keypoint_scores'][valid_mask])
+                total_score += torch.sum(params['keypoint_scores'][valid_mask][valid_errors])
         
         # Avoid division by zero
-        if total_score > 0:
+        if total_score > 0 and num_cams >= 2:
             repr_loss = repr_loss / total_score
             # Check for NaN in final reprojection loss
             if torch.isnan(repr_loss).any() or torch.isinf(repr_loss).any():
                 print(f"Warning: NaN or Inf detected in reprojection loss")
                 repr_loss = torch.tensor(1000.0, device=device)  # Replace with a high value
-        elif verbose:
+        else:
+            repr_loss = torch.tensor(1000.0, device=device)  # Replace with a high value
             print("Warning: total_score is zero, no valid keypoints found")
         
         # Temporal consistency loss
-        temp_loss = 0.0
-        if prev_pose_tensor is not None:
-            temp_loss = torch.norm(x_param - prev_pose_tensor.flatten())
-            # Check for NaN in temporal loss
-            if torch.isnan(temp_loss).any() or torch.isinf(temp_loss).any():
-                print(f"Warning: NaN or Inf detected in temporal loss")
-                temp_loss = torch.tensor(0.0, device=device)  # Ignore this term if it's invalid
-
+        temp_loss = torch.tensor(0.0, device=device)
         # Shape consistency loss
-        shape_loss = 0.0
+        shape_loss = torch.tensor(0.0, device=device)
         if prev_pose_tensor is not None:
+            temp_loss += torch.norm(x_reshaped - prev_pose_tensor)
             x_reshaped_norm = x_reshaped - x_reshaped[0]
-            shape_loss = torch.norm(x_reshaped_norm - prev_pose_tensor_norm)
-            # Check for NaN in shape loss
-            if torch.isnan(shape_loss).any() or torch.isinf(shape_loss).any():
-                print(f"Warning: NaN or Inf detected in shape loss")
-                shape_loss = torch.tensor(0.0, device=device)  # Ignore this term if it's invalid
+            temp_loss += torch.norm(x_reshaped_norm - prev_pose_tensor_norm)
+                                    
+            # Compute covariance matrix
+            H = torch.matmul(x_reshaped_norm.transpose(-1, -2), prev_pose_tensor_norm)
+            
+            # SVD decomposition
+            U, _, V = torch.svd(H)
+            
+            # Compute rotation matrix
+            R = torch.matmul(V, U.transpose(-1, -2))
+            
+            # Handle reflection case
+            det = torch.det(R)
+            if det < 0:
+                V_adj = V.clone()
+                V_adj[:, -1] = -V_adj[:, -1]
+                R = torch.matmul(V_adj, U.transpose(-1, -2))
+            
+            # Apply rotation to align current pose with previous pose
+            aligned_current = torch.matmul(x_reshaped_norm, R.transpose(-1, -2))
+            
+            # Calculate shape loss as the norm between aligned poses
+            shape_loss += torch.norm(aligned_current - prev_pose_tensor_norm)
+
+        if wrist_position is not None:
+            wrist_loss = torch.norm(x_reshaped[0] - wrist_position_tensor)
+        else:
+            wrist_loss = torch.tensor(0.0, device=device)
 
         # BMC loss
         bmc_loss, _ = bmc.compute_loss(x_reshaped.unsqueeze(0))
@@ -201,7 +227,7 @@ def optimize_hand_pose(initial_pose, filtered_hand_poses_2d, camera_intrinsics, 
             bmc_loss = torch.tensor(0.0, device=device)
         
         # Combine all losses with weights
-        total_loss = lambdas[0] * repr_loss + lambdas[1] * (temp_loss + shape_loss) + lambdas[2] * bmc_loss
+        total_loss = lambdas[0] * repr_loss + lambdas[1] * temp_loss + lambdas[2] * shape_loss +  lambdas[3] * wrist_loss + lambdas[4] * bmc_loss
 
         if verbose:
             if type(repr_loss) == float:
@@ -210,6 +236,7 @@ def optimize_hand_pose(initial_pose, filtered_hand_poses_2d, camera_intrinsics, 
                 print(f"Reprojection loss: {repr_loss.item()}")
             print(f"Temporal loss: {temp_loss.item() if torch.is_tensor(temp_loss) else temp_loss}")
             print(f"Shape loss: {shape_loss.item() if torch.is_tensor(shape_loss) else shape_loss}")
+            print(f"Wrist loss: {wrist_loss.item() if torch.is_tensor(wrist_loss) else wrist_loss}")
             print(f"BMC loss: {bmc_loss.item() if torch.is_tensor(bmc_loss) else bmc_loss}")
             print(f"Total loss: {total_loss.item()}")
         
@@ -220,7 +247,7 @@ def optimize_hand_pose(initial_pose, filtered_hand_poses_2d, camera_intrinsics, 
         [x_tensor], 
         lr=1,
         line_search_fn='strong_wolfe',
-        max_iter=20,
+        max_iter=50,
         tolerance_grad=1e-7,
         tolerance_change=1e-9
     )
@@ -247,9 +274,9 @@ def optimize_hand_pose(initial_pose, filtered_hand_poses_2d, camera_intrinsics, 
     # Convert result back to numpy
     optimized_hand = x_tensor.detach().cpu().numpy().reshape(-1, 3)
     
-    return optimized_hand
+    return optimized_hand, final_loss
 
-def optimize_poses(initial_hand_poses_3d, hand_poses_2d, camera_intrinsics, camera_extrinsics, distortion_coeffs, frame_idx=0, previous_pose=None, visualize=False, input_dir=None, hand_id_mapping=None):
+def optimize_poses(initial_hand_poses_3d, hand_poses_2d, camera_intrinsics, camera_extrinsics, distortion_coeffs, frame_idx=0, previous_pose=None, visualize=False, input_dir=None, hand_id_mapping=None, lambdas=[1.0, 50.0, 50.0, 50.0, 5.0], body_pose=None):
     """
     Optimize 3D hand poses by minimizing reprojection error across multiple views.
     
@@ -332,22 +359,25 @@ def optimize_poses(initial_hand_poses_3d, hand_poses_2d, camera_intrinsics, came
             if best_match2 is not None:
                 filtered_hand_poses_2d2[cam_name] = hand_pose_2d[frame_idx][best_match2]
 
+    wrist_idx_right = 10
+    wrist_idx_left = 9
+
     # Optimize hand poses
-    optimized_hand1 = optimize_hand_pose(
+    optimized_hand1, final_loss1 = optimize_hand_pose(
         initial_hand_poses_3d[:num_keypoints_hands], filtered_hand_poses_2d1,
         camera_intrinsics, camera_extrinsics, distortion_coeffs, 
-        previous_pose=previous_pose1
+        previous_pose=previous_pose1, lambdas=lambdas,wrist_position=body_pose[wrist_idx_left]
     )
-    
-    optimized_hand2 = optimize_hand_pose(
+
+    optimized_hand2, final_loss2 = optimize_hand_pose(
         initial_hand_poses_3d[num_keypoints_hands:], filtered_hand_poses_2d2,
         camera_intrinsics, camera_extrinsics, distortion_coeffs, 
-        previous_pose=previous_pose2
+        previous_pose=previous_pose2, lambdas=lambdas, wrist_position=body_pose[wrist_idx_right]
     )
 
     # Combine optimized hands
     optimized_hands.append(np.concatenate([optimized_hand1, optimized_hand2], axis=0))
-    return np.array(optimized_hands).squeeze()
+    return np.array(optimized_hands).squeeze(), (final_loss1 + final_loss2) / 2.0
 
 def optimize_hand_pose_no_bmc(initial_pose, filtered_hand_poses_2d, camera_intrinsics, camera_extrinsics, distortion_coeffs, previous_pose=None, lambdas=[1.0, 50.0, 50.0, 50.0], scale_by_bbox=True, wrist_position=None):
     """
@@ -525,15 +555,35 @@ def optimize_hand_pose_no_bmc(initial_pose, filtered_hand_poses_2d, camera_intri
             print("Warning: total_score is zero, no valid keypoints found")
         
         # Temporal consistency loss
-        temp_loss = 0.0
+        temp_loss = torch.tensor(0.0, device=device)
+        # Shape consistency loss
+        shape_loss = torch.tensor(0.0, device=device)
         if prev_pose_tensor is not None:
-            temp_loss = torch.norm(x_param - prev_pose_tensor.flatten())
-
-        # Shape consitstnecy loss
-        shape_loss = 0.0
-        if prev_pose_tensor is not None:
+            temp_loss += torch.norm(x_reshaped - prev_pose_tensor)
             x_reshaped_norm = x_reshaped - x_reshaped[0]
-            shape_loss = torch.norm(x_reshaped_norm - prev_pose_tensor_norm)
+            temp_loss += torch.norm(x_reshaped_norm - prev_pose_tensor_norm)
+                                    
+            # Compute covariance matrix
+            H = torch.matmul(x_reshaped_norm.transpose(-1, -2), prev_pose_tensor_norm)
+            
+            # SVD decomposition
+            U, _, V = torch.svd(H)
+            
+            # Compute rotation matrix
+            R = torch.matmul(V, U.transpose(-1, -2))
+            
+            # Handle reflection case
+            det = torch.det(R)
+            if det < 0:
+                V_adj = V.clone()
+                V_adj[:, -1] = -V_adj[:, -1]
+                R = torch.matmul(V_adj, U.transpose(-1, -2))
+            
+            # Apply rotation to align current pose with previous pose
+            aligned_current = torch.matmul(x_reshaped_norm, R.transpose(-1, -2))
+            
+            # Calculate shape loss as the norm between aligned poses
+            shape_loss += torch.norm(aligned_current - prev_pose_tensor_norm)
 
         if wrist_position is not None:
             wrist_loss = torch.norm(x_reshaped[0] - wrist_position_tensor)

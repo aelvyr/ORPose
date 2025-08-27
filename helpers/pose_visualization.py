@@ -355,7 +355,7 @@ def process_and_visualize_poses(video_path, tracks, output_dir, poses_3d_body=No
 
 def create_reprojection_videos(poses_3d_body, hand_poses_3d_dict, camera_intrinsics, 
                      camera_extrinsics, distortion_coeffs, data_dir, output_dir, 
-                     camera_angles=['gopro10', 'gopro5'], hide_legs=False,
+                     camera_angles=['gopro10', 'gopro5'], hide_legs=False, show_body=True,
                      compare_viewpoints=False, hand_id_mapping=None, multi_person=False, person_id=None):
     """
     Create videos with 3D hand poses reprojected into 2D camera views from specified angles.
@@ -370,6 +370,7 @@ def create_reprojection_videos(poses_3d_body, hand_poses_3d_dict, camera_intrins
         output_dir: Directory to save output videos
         camera_angles: List of camera names to use for video creation
         hide_legs: Whether to hide leg keypoints in the visualization
+        show_body: Whether to show body keypoints in the visualization
         compare_viewpoints: If True, create videos comparing the same method across different viewpoints
                            If False (default), compare different methods for the same viewpoint
         hand_id_mapping: Optional mapping between hand object IDs and hand sides for viewpoint counting
@@ -611,26 +612,27 @@ def create_reprojection_videos(poses_3d_body, hand_poses_3d_dict, camera_intrins
                                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
                             
                             # Project 3D body pose to 2D
-                            body_pose_frame = None
-                            if multi_person:
-                                if person_id is not None and person_id in poses_3d_body and frame_idx < len(poses_3d_body[person_id]):
-                                    body_pose_frame = poses_3d_body[person_id][frame_idx]
-                            else:
-                                if frame_idx < len(poses_3d_body):
-                                    body_pose_frame = poses_3d_body[frame_idx]
-                            
-                            if body_pose_frame is not None and not np.isnan(body_pose_frame).any():
-                                body_2d = project_points_safe(body_pose_frame, cam_intrinsics, 
-                                                        cam_rotation, cam_translation, cam_distortion)
+                            if show_body:
+                                body_pose_frame = None
+                                if multi_person:
+                                    if person_id is not None and person_id in poses_3d_body and frame_idx < len(poses_3d_body[person_id]):
+                                        body_pose_frame = poses_3d_body[person_id][frame_idx]
+                                else:
+                                    if frame_idx < len(poses_3d_body):
+                                        body_pose_frame = poses_3d_body[frame_idx]
                                 
-                                # Create a dummy instance with the projected points for drawing
-                                body_instance = type('', (), {
-                                    'keypoints': np.array(body_2d).reshape(1, -1, 2),
-                                    'keypoint_scores': np.ones((1, len(body_2d)))
-                                })
-                                
-                                # Draw body pose
-                                draw_pose(method_frame, body_instance, pose_type='body', hide_legs=hide_legs)
+                                if body_pose_frame is not None and not np.isnan(body_pose_frame).any():
+                                    body_2d = project_points_safe(body_pose_frame, cam_intrinsics, 
+                                                            cam_rotation, cam_translation, cam_distortion)
+                                    
+                                    # Create a dummy instance with the projected points for drawing
+                                    body_instance = type('', (), {
+                                        'keypoints': np.array(body_2d).reshape(1, -1, 2),
+                                        'keypoint_scores': np.ones((1, len(body_2d)))
+                                    })
+                                    
+                                    # Draw body pose
+                                    draw_pose(method_frame, body_instance, pose_type='body', hide_legs=hide_legs)
                             
                             # Project 3D hand pose to 2D
                             hand_3d = hand_poses_3d[frame_idx]
