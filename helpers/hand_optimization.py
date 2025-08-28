@@ -187,39 +187,46 @@ def optimize_hand_pose(initial_pose, filtered_hand_poses_2d, camera_intrinsics, 
         # Shape consistency loss
         shape_loss = torch.tensor(0.0, device=device)
         if prev_pose_tensor is not None:
-            temp_loss += torch.norm(x_reshaped - prev_pose_tensor)
             x_reshaped_norm = x_reshaped - x_reshaped[0]
-            temp_loss += torch.norm(x_reshaped_norm - prev_pose_tensor_norm)
+            if lambdas[1] > 0:
+                temp_loss += torch.norm(x_reshaped - prev_pose_tensor)
+                
+                temp_loss += torch.norm(x_reshaped_norm - prev_pose_tensor_norm)
                                     
-            # Compute covariance matrix
-            H = torch.matmul(x_reshaped_norm.transpose(-1, -2), prev_pose_tensor_norm)
-            
-            # SVD decomposition
-            U, _, V = torch.svd(H)
-            
-            # Compute rotation matrix
-            R = torch.matmul(V, U.transpose(-1, -2))
-            
-            # Handle reflection case
-            det = torch.det(R)
-            if det < 0:
-                V_adj = V.clone()
-                V_adj[:, -1] = -V_adj[:, -1]
-                R = torch.matmul(V_adj, U.transpose(-1, -2))
-            
-            # Apply rotation to align current pose with previous pose
-            aligned_current = torch.matmul(x_reshaped_norm, R.transpose(-1, -2))
-            
-            # Calculate shape loss as the norm between aligned poses
-            shape_loss += torch.norm(aligned_current - prev_pose_tensor_norm)
 
-        if wrist_position is not None:
+            if lambdas[2] > 0:
+                # Compute covariance matrix
+                H = torch.matmul(x_reshaped_norm.transpose(-1, -2), prev_pose_tensor_norm)
+                
+                # SVD decomposition
+                U, _, V = torch.svd(H)
+                
+                # Compute rotation matrix
+                R = torch.matmul(V, U.transpose(-1, -2))
+                
+                # Handle reflection case
+                det = torch.det(R)
+                if det < 0:
+                    V_adj = V.clone()
+                    V_adj[:, -1] = -V_adj[:, -1]
+                    R = torch.matmul(V_adj, U.transpose(-1, -2))
+                
+                # Apply rotation to align current pose with previous pose
+                aligned_current = torch.matmul(x_reshaped_norm, R.transpose(-1, -2))
+                
+                # Calculate shape loss as the norm between aligned poses
+                shape_loss += torch.norm(aligned_current - prev_pose_tensor_norm)
+
+        if wrist_position is not None and lambdas[3] > 0:
             wrist_loss = torch.norm(x_reshaped[0] - wrist_position_tensor)
         else:
             wrist_loss = torch.tensor(0.0, device=device)
 
         # BMC loss
-        bmc_loss, _ = bmc.compute_loss(x_reshaped.unsqueeze(0))
+        if lambdas[4] > 0:
+            bmc_loss, _ = bmc.compute_loss(x_reshaped.unsqueeze(0))
+        else:
+            bmc_loss = torch.tensor(0.0, device=device)
 
         # Check for NaN in BMC loss 
         if torch.isnan(bmc_loss).any() or torch.isinf(bmc_loss).any():
@@ -406,9 +413,15 @@ def optimize_hand_pose_no_bmc(initial_pose, filtered_hand_poses_2d, camera_intri
         translation = torch.tensor(camera_extrinsics[cam_name][1], dtype=torch.float32, device=device)
         distortion = torch.tensor(distortion_coeffs[cam_name], dtype=torch.float32, device=device)
         
-        keypoints = torch.tensor(hand_pose_2d.keypoints.squeeze(), dtype=torch.float32, device=device)
-        keypoint_scores = torch.tensor(hand_pose_2d.keypoint_scores.squeeze(), dtype=torch.float32, device=device)
+        try:
+            keypoints = torch.tensor(hand_pose_2d.keypoints.squeeze(), dtype=torch.float32, device=device)
+            keypoint_scores = torch.tensor(hand_pose_2d.keypoint_scores.squeeze(), dtype=torch.float32, device=device)
+
         
+        except Exception as e:
+            keypoints = torch.tensor(np.array(hand_pose_2d['keypoints']).squeeze(), dtype=torch.float32, device=device)
+            keypoint_scores = torch.tensor(np.array(hand_pose_2d['keypoint_scores']).squeeze(), dtype=torch.float32, device=device)
+
         # Calculate bounding box size for scaling the reprojection error
         valid_keypoints = keypoints[keypoint_scores > 0.1]
         if len(valid_keypoints) > 0 and scale_by_bbox:
@@ -559,33 +572,35 @@ def optimize_hand_pose_no_bmc(initial_pose, filtered_hand_poses_2d, camera_intri
         # Shape consistency loss
         shape_loss = torch.tensor(0.0, device=device)
         if prev_pose_tensor is not None:
-            temp_loss += torch.norm(x_reshaped - prev_pose_tensor)
             x_reshaped_norm = x_reshaped - x_reshaped[0]
-            temp_loss += torch.norm(x_reshaped_norm - prev_pose_tensor_norm)
-                                    
-            # Compute covariance matrix
-            H = torch.matmul(x_reshaped_norm.transpose(-1, -2), prev_pose_tensor_norm)
-            
-            # SVD decomposition
-            U, _, V = torch.svd(H)
-            
-            # Compute rotation matrix
-            R = torch.matmul(V, U.transpose(-1, -2))
-            
-            # Handle reflection case
-            det = torch.det(R)
-            if det < 0:
-                V_adj = V.clone()
-                V_adj[:, -1] = -V_adj[:, -1]
-                R = torch.matmul(V_adj, U.transpose(-1, -2))
-            
-            # Apply rotation to align current pose with previous pose
-            aligned_current = torch.matmul(x_reshaped_norm, R.transpose(-1, -2))
-            
-            # Calculate shape loss as the norm between aligned poses
-            shape_loss += torch.norm(aligned_current - prev_pose_tensor_norm)
+            if lambdas[1] > 0:
+                temp_loss += torch.norm(x_reshaped - prev_pose_tensor)
+                temp_loss += torch.norm(x_reshaped_norm - prev_pose_tensor_norm)
 
-        if wrist_position is not None:
+            if lambdas[2] > 0:                        
+                # Compute covariance matrix
+                H = torch.matmul(x_reshaped_norm.transpose(-1, -2), prev_pose_tensor_norm)
+                
+                # SVD decomposition
+                U, _, V = torch.svd(H)
+                
+                # Compute rotation matrix
+                R = torch.matmul(V, U.transpose(-1, -2))
+                
+                # Handle reflection case
+                det = torch.det(R)
+                if det < 0:
+                    V_adj = V.clone()
+                    V_adj[:, -1] = -V_adj[:, -1]
+                    R = torch.matmul(V_adj, U.transpose(-1, -2))
+                
+                # Apply rotation to align current pose with previous pose
+                aligned_current = torch.matmul(x_reshaped_norm, R.transpose(-1, -2))
+                
+                # Calculate shape loss as the norm between aligned poses
+                shape_loss += torch.norm(aligned_current - prev_pose_tensor_norm)
+
+        if wrist_position is not None and lambdas[3] > 0:
             wrist_loss = torch.norm(x_reshaped[0] - wrist_position_tensor)
         else:
             wrist_loss = torch.tensor(0.0, device=device)

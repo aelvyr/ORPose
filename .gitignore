@@ -1,18 +1,10 @@
-vis_dir/
-pose_outputs/
 inputs/
-outputs/
-pose_outputs/
-videos/
-output_3d/
-intrinsics/
-extrinsics/
 bboxes/
 checkpoints/
 configs/
-camera_poses/
 vector_plots/
 labeled_poses/
-predictions_2d/
+comparisons/
+*.mp4
 
 __pycache__/
