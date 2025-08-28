@@ -32,6 +32,15 @@ class Launcher(QMainWindow):
         create_button.clicked.connect(self.handle_create_labeling)
         actions_layout.addRow(video_select_button, create_button)
 
+        # ✅ Fotos (images)
+        photo_select_button = QPushButton("Select Fotos")
+        self.selected_photos = []
+        photo_select_button.clicked.connect(self.handle_photo_selection)
+
+        create_photo_button = QPushButton("Create new labeling from Fotos")
+        create_photo_button.clicked.connect(self.handle_create_labeling_from_photos)
+        actions_layout.addRow(photo_select_button, create_photo_button)
+
     def add_import_section(self, actions_layout):
         labeling_select_button = QPushButton("Select labeling files")
         self.selected_labelings = []
@@ -60,6 +69,17 @@ class Launcher(QMainWindow):
         if ok:
             self.selected_videos = selected_videos
 
+    # ✅ New: image selection handler
+    def handle_photo_selection(self):
+        selected_photos, ok = QFileDialog.getOpenFileNames(
+            self,
+            "Select Fotos",
+            "",
+            "Images (*.jpg *.jpeg *.png)"
+        )
+        if ok:
+            self.selected_photos = selected_photos
+
     def handle_create_labeling(self):
         """
         Creates a new labeling project from videos only.
@@ -80,6 +100,22 @@ class Launcher(QMainWindow):
         self.hide()
         self.app.open_project(name)
 
+    def handle_create_labeling_from_photos(self):
+        if self.selected_photos == []:
+            QMessageBox.warning(self, "No photos selected", "Please select at least one image.")
+            return
+        name, ok = QInputDialog.getText(self, "Create Labeling from Fotos", "Enter the dataset name:")
+        if not ok:
+            return
+        persons, ok = QInputDialog.getInt(self, "Create Labeling from Fotos", "Enter the number of persons:", min=1)
+        if not ok or persons <= 1:
+            persons = 1
+        self.selected_labelings = [None for _ in range(persons)]
+        self.app.create_project(name, self.selected_photos, self.selected_labelings)
+        self.hide()
+        self.app.open_project(name)
+
+        
     def handle_labeling_selection(self):
         """
         Opens a file dialog to select labeling files.
