@@ -1,6 +1,5 @@
 bboxes/
 checkpoints/
-configs/
 vector_plots/
 labeled_poses/
 comparisons/
