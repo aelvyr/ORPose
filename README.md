@@ -61,7 +61,7 @@ In order to use the full notebooks, you can install the corresponding models for
 - Wholebody pose and hand pose estimators from mmpose repo
 
 Please put these models in the corresponding checkpoints folder in the corresponding folders (see helpers/predictors.py for correct paths)
-You can also copy the configs folder from mmpose and add folders for the sapiens and other added models in the corresponding paths. (See again helpers/predictors.py)
+You can also find the links to the model downloads in the configs folder from mmpose that is provided here. For the sapiens and additional models added in the configs file here, the models have to be downloaded on the official pages. (See again helpers/predictors.py)
 
 ## File Descrptions
 
