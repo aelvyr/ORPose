@@ -69,7 +69,7 @@ def triangulate_hand_keypoints(hand_poses_2d, camera_intrinsics, camera_extrinsi
             
             for cam_name, hand_data in left_hand_2d.items():
                 # Only use keypoints with sufficient confidence
-                if hand_data['scores'][kp_idx] > 0.3 and sum(hand_data['bbox']) > 0:
+                if hand_data['scores'][kp_idx] > 0.3:
                     kp = hand_data['keypoints'][kp_idx]
                     
                     # Undistort the point

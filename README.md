@@ -44,6 +44,21 @@ Install ninja using the instructions in the [official website](https://ninja-bui
 Follow the installation instructions on the [mmpose website](https://mmpose.readthedocs.io/en/latest/installation.html).
 (The code was developed using mmpose v1.3.0)
 
-#### SAM2
+#### SAM2 or EfficientTAM (EfficientTAM recommended)
 
+Install EfficientTAM following the official instruction on the [efficientTAM gihub page](https://github.com/yformer/EfficientTAM)
 Install SAMv2 following the official instructions on the [sam2 github page](https://github.com/facebookresearch/sam2?tab=readme-ov-file#installation)
+
+#### Sapiens (For Evaluations)
+
+Install sapiens_lite from the official instructions on the [Sapiens github page](https://github.com/facebookresearch/sapiens)
+
+### Model Downloads
+
+In order to use the full notebooks, you can install the corresponding models for the given implementations:
+- sapiens-1.0B from the sapiens github page
+- efficientTAM models used in helpers/predictors.py file
+- Wholebody pose and hand pose estimators from mmpose repo
+
+Please put these models in the corresponding checkpoints folder in the corresponding folders (see helpers/predictors.py for correct paths)
+You can also copy the configs folder from mmpose and add folders for the sapiens and other added models in the corresponding paths. (See again helpers/predictors.py)
