@@ -9,6 +9,11 @@ synced/
 synced_cut_long/
 *.jpg
 chb/
-*.mp4
+cha2/
+cha3/
+cha4/
+cha5/
+cha6/
+cha7/
 
 __pycache__/
