@@ -8,3 +8,6 @@ comparisons/
 *.mp4
 
 __pycache__/
+venv/
+.env/
+env/
