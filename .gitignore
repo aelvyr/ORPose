@@ -1,11 +1,13 @@
-inputs/
 bboxes/
 checkpoints/
-configs/
 vector_plots/
 labeled_poses/
 comparisons/
-*.mp4
+tim_paper/
+synced/
+synced_cut_long/
+*.jpg
+chb/
 
 __pycache__/
 venv/
