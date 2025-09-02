@@ -37,6 +37,25 @@ class App(QApplication):
         Args:
             dataset_name (str): The name of the dataset to open.
         """
+        print("Dataset name, ", dataset_name)
+        try:
+            self.current_project = Project(self, dataset_name)
+            self.current_project.window.show()
+            print("Project window shown")
+        except ValueError as e:
+            print(e)
+            QErrorMessage(self, f"Error opening project: {e}").exec_()
+            quit(-1)
+
+    def open_project_foto(self, dataset_name):
+        """
+        Opens the project specified by the dataset name.
+        If opening fails, it displays an error message.
+
+        Args:
+            dataset_name (str): The name of the dataset to open.
+        """
+        print("Dataset name, ", dataset_name)
         try:
             self.current_project = Project(self, dataset_name)
             self.current_project.window.show()
@@ -73,6 +92,30 @@ class App(QApplication):
         inputs = Path("inputs") / name
         inputs.mkdir(parents=True, exist_ok=True)
         for file in videos:
+            file = Path(file)
+            if file.resolve() == (inputs / file.name).resolve():
+                continue
+            shutil.copy(file, inputs / file.name)
+        for person, file in enumerate(persons):
+            person_path = Path("output_3d") / f"{name}_{person}"
+            person_path.mkdir(parents=True, exist_ok=True)
+            if file is not None:
+                if file.resolve() == (person_path / "hand_poses_2d.npz").resolve():
+                    continue
+                shutil.copy(file, person_path / "hand_poses_2d.npz")
+
+    def create_project_fotos(self, name, fotos, persons):
+        """
+        Creates a new project with the given name, videos, and persons.
+
+        Args:
+            name (str): The name of the project.
+            fotos (list): A list of foto files.
+            persons (list): A list of person files.
+        """
+        inputs = Path("inputs") / name
+        inputs.mkdir(parents=True, exist_ok=True)
+        for file in fotos:
             file = Path(file)
             if file.resolve() == (inputs / file.name).resolve():
                 continue

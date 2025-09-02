@@ -2,12 +2,17 @@ from pathlib import Path
 from pose import PoseData
 from ui import ProjectWindow
 from camera import Cameras
+from collections import defaultdict
+
 
 class Project:
     """
     This class is responsible for the main application logic, since that is working on a project.
     It provides functions for performing all actions you can perform on the project and makes sure all other components are updated accordingly.
     """
+    IMAGE_EXTS = {'.png', '.jpg', '.jpeg'}
+    VIDEO_EXTS = {'.mp4', '.mov', '.avi', '.mkv', '.m4v', '.webm'}
+    
     def __init__(self, app, dataset_name):
         """
         Initialize the application for the given dataset.
@@ -15,14 +20,25 @@ class Project:
         self.app = app
         self.dark_mode = False
         self.dataset_name = dataset_name
-        self.cameras = Cameras(dataset_name, self.available_cameras())
+
+        self.video_path = Path("inputs") / self.dataset_name
+        # Determine foto mode (folder contains only image files)
+        self.foto_mode = self._is_foto_mode()
+        # In foto mode we’ll also keep an index {camera_name: [file Paths...]}
+        self.foto_index = self._build_foto_camera_index() if self.foto_mode else {}
+
+        self.cameras = Cameras(self.dataset_name,
+                       cameras=sorted(self.foto_index.keys()) if self.foto_mode else self.available_cameras(),
+                       foto_mode=self.foto_mode,
+                       foto_index=self.foto_index)
         self.dataset = PoseData(self)
+        print(self.available_cameras())
         self.current_camera = self.cameras.get(0)
         self.current_hand = 0
         self.current_keypoint = 0
         self.keypoint_advance = 0
         self.current_person = 0
-        self.frame_step = 30
+        self.frame_step = 1 if self.foto_mode else 30
         self.keypoints_hidden = False
         self.window = ProjectWindow(self)
         
@@ -30,12 +46,20 @@ class Project:
     def available_cameras(self):
         """
         Return a list of available cameras for the current project.
+
+        - In foto mode: unique prefixes before the first underscore from image filenames.
+        - In video mode: base names (stem) of video files in the folder.
         """
-        video_path = Path("inputs") / self.dataset_name
+        if self.foto_mode:
+            # Keys are camera names like 'gopro10', 'gopro11', ...
+            return sorted(self.foto_index.keys())
+
+        # video mode: include only recognized video files
         cameras = []
-        for camera_file in video_path.iterdir():
-            cameras += [camera_file.stem]
-        return cameras
+        for camera_file in self._iter_files():
+            if camera_file.suffix.lower() in self.VIDEO_EXTS:
+                cameras.append(camera_file.stem)
+        return sorted(cameras)
 
     def change_camera(self, index):
         """
@@ -160,3 +184,42 @@ class Project:
     def swap_people(self, other):
         self.dataset.flip_person(self.current_person, other, camera=self.current_camera)
         self.window.canvas.viewport.draw()
+
+    # ---------- helpers ----------
+
+    def _iter_files(self):
+        """Yield only files in the dataset folder (skip directories)."""
+        if not self.video_path.exists():
+            return []
+        return [p for p in self.video_path.iterdir() if p.is_file()]
+
+    def _is_foto_mode(self) -> bool:
+        """
+        Foto mode if the folder exists, has at least one file,
+        and **every** file is an image (png/jpg/jpeg).
+        """
+        files = self._iter_files()
+        if not files:
+            return False
+        exts = {p.suffix.lower() for p in files}
+        # Only allow known image extensions
+        return all(ext in self.IMAGE_EXTS for ext in exts)
+
+    def _build_foto_camera_index(self) -> dict:
+        """
+        Build a mapping {camera_name: [image files]} where camera_name is the
+        part BEFORE the first underscore in the filename.
+        Example: gopro10_343.jpg -> camera 'gopro10'
+        """
+        index = defaultdict(list)
+        for f in self._iter_files():
+            if f.suffix.lower() not in self.IMAGE_EXTS:
+                continue
+            stem = f.stem
+            # Split on the first underscore; if none, use entire stem as camera name
+            camera = stem.split('_', 1)[0] if '_' in stem else stem
+            index[camera].append(f)
+        # Sort file lists for reproducibility (optional)
+        for cam in index:
+            index[cam].sort()
+        return dict(index)

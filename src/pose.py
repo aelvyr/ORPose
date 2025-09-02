@@ -62,39 +62,70 @@ class PoseData:
         self.verify()
         print("Loaded camera metadata from the dataset")
 
+    # ---------- helpers ----------
+
+    def _frame_count_for_camera(self, camera_name: str) -> int:
+        """
+        Return the expected number of frames for a camera based on project mode.
+        - Video mode: use cv2 to read frame count from <camera>.mp4
+        - Foto mode: number of images for that camera from project.cameras.foto_index
+        """
+        if getattr(self.project, "foto_mode", False):
+            # foto_index: dict[camera_name] -> list[Path]
+            file_list = getattr(self.project.cameras, "foto_index", {}).get(camera_name, [])
+            return len(file_list)
+        else:
+            # video mode, read .mp4 frame count
+            video = cv.VideoCapture(Path("inputs") / self.project.dataset_name / f"{camera_name}.mp4")
+            if not video.isOpened():
+                return 0
+            try:
+                return int(video.get(cv.CAP_PROP_FRAME_COUNT))
+            finally:
+                video.release()
+
     def verify(self):
         """
-        Verifies the datasets integrity.
+        Verifies the dataset’s integrity for both video and foto modes.
         """
         for person in range(self.persons):
+            # Warn about cameras present in saved data but missing in current project
             for camera in self.data[person].keys():
                 if camera not in self.project.cameras.data:
-                    print(f"Person {person} has camera {camera}, but no footage of that camera was found")
-                    print(f"This camera will be ignored. If you want to include it, please add it to 'inputs/{self.project.dataset_name}/{camera}.mp4'")
+                    print(f"Person {person} has camera {camera}, but no footage/images for that camera were found.")
+                    expected_hint = (
+                        f"inputs/{self.project.dataset_name}/{camera}.mp4"
+                        if not getattr(self.project, 'foto_mode', False)
+                        else f"inputs/{self.project.dataset_name}/{camera}_*.jpg (or .png/.jpeg)"
+                    )
+                    print(f"This camera will be ignored. If you want to include it, please add it to '{expected_hint}'")
+
+            # Ensure every project camera exists in the pose data
             for camera in self.project.cameras.data:
                 if camera not in self.data[person].keys():
                     self.empty_camera(person, camera)
                     print(f"Camera {camera} was added to person {person}")
-                video = cv.VideoCapture(Path("inputs")/self.project.dataset_name/f"{camera}.mp4")
-                num_frames = int(video.get(cv.CAP_PROP_FRAME_COUNT))
-                if len(self.data[person][camera]) != num_frames:
-                    print(f"Person {person} has {len(self.data[person][camera])} frames for camera {camera}, but {num_frames} were expected")
+
+                num_frames = self._frame_count_for_camera(camera)
+                has_frames = len(self.data[person][camera])
+
+                if has_frames != num_frames:
+                    print(f"Person {person} has {has_frames} frames for camera {camera}, but {num_frames} were expected")
+
+                # Basic per-frame shape sanity (kept from your code)
                 for frame in self.data[person][camera]:
                     if len(frame) != 2:
-                        raise ValueError(f"Invalid amount of hands for person {person} and camera {camera} at frame {frame}")
-                    #for hand in frame:
-                        #if len(hand.keypoints[0]) != 21:
-                        #    raise ValueError(f"Invalid amount of keypoints for hand {hand} for person {person} and camera {camera} at frame {frame}. Was {len(hand.keypoints[0])} should be 21")
-                        #if len(hand.keypoint_scores[0]) != 21:
-                        #    raise ValueError(f"Invalid amount of keypoint scores for hand {hand} for person {person} and camera {camera} at frame {frame}. Was {len(hand.keypoint_scores[0])} should be 21")
+                        raise ValueError(
+                            f"Invalid amount of hands for person {person} and camera {camera} at frame {frame}"
+                        )
+                    # Optionally re-enable deeper checks here
             print(f"Verified data for person {person}")
+
+    # ---------- initialization for missing data ----------
 
     def empty_person(self, person):
         """
         Initializes the data for a person who is missing data.
-
-        Args:
-            person (int): The index of the person.
         """
         self.data[person] = {}
         for camera in self.project.cameras.data:
@@ -103,77 +134,59 @@ class PoseData:
 
     def empty_camera(self, person, camera):
         """
-        Initializes the data for a camera for a person which is missing data.
+        Initializes the data for a missing camera for a person.
 
-        Args:
-            person (int): The index of the person.
-            camera (str): The name of the camera.
+        Creates an empty two-hand FrameData entry for every expected frame.
         """
         self.data[person][camera] = []
-        video = cv.VideoCapture(Path("inputs") / self.name / f"{camera}.mp4")
-        frames = int(video.get(cv.CAP_PROP_FRAME_COUNT))
-        for i in range(0,frames):
+        frames = self._frame_count_for_camera(camera)
+        for i in range(frames):
+            # two hands per frame
             self.data[person][camera].append([])
             for j in range(2):
-                self.data[person][camera][i].append(FrameData(i, camera, person))
-                for k in range(21):
-                    self.data[person][camera][i][j].keypoints[0, k] = (0,0)
-                    self.data[person][camera][i][j].keypoint_scores[0, k] = 0
+                fd = FrameData(i, camera, person)
+                # Initialize to zeros (already zeros in constructor, but keep explicit for clarity)
+                # keypoints: (1,21,2), keypoint_scores: (1,21)
+                self.data[person][camera][i].append(fd)
+
+    # ---------- IO ----------
 
     def load(self):
         """
-        This method (re)loads pose data from the file with the path specified in self.path.
+        (Re)loads pose data from each person's hand_poses_2d.npz, or initializes empty if missing.
         """
         self.data = []
         for idx, path in self.paths:
-            path = path / "hand_poses_2d.npz"
+            file_path = path / "hand_poses_2d.npz"
             self.data.append({})
-            if not path.exists():
+            if not file_path.exists():
                 self.empty_person(idx)
                 continue
-            self.data[idx] = np.load(path, allow_pickle=True)["poses_2d"].item()
-            print(f"Loaded pose data from {path}")
+            self.data[idx] = np.load(file_path, allow_pickle=True)["poses_2d"].item()
+            print(f"Loaded pose data from {file_path}")
 
     def save(self):
         """
-        This method saves the pose data to the file with the path specified in self.path.
+        Saves pose data back to disk for each person.
         """
         for idx, path in self.paths:
             np.savez(path / "hand_poses_2d.npz", poses_2d=self.data[idx])
             print(f"Saved poses to {path}")
 
+    # ---------- accessors ----------
+
     def get_pose(self, person: int, camera: Camera, hand_idx: int):
-        """
-        This method allows you to get a pose object for the given camera and hand index.
-        The pose object serves as an abstraction over the raw pose data,
-        providing a convenient interface for accessing and manipulating the pose information.
-
-        Args:
-            camera (Camera): The camera object which is used to index into the pose data.
-            hand_idx (int): The hand index which is used to index into the pose data.
-
-        Returns:
-            Pose: The pose object for the given camera and hand index.
-        """
         return Pose(self, person, camera, hand_idx)
 
     def flip_hands(self, person: int, camera: Camera):
-        """
-        Flips the data of the two hands.
-        """
         for frame in range(0, camera.frame_count):
             tmp = self.data[person][camera.name()][frame][0]
             self.data[person][camera.name()][frame][0] = self.data[person][camera.name()][frame][1]
             self.data[person][camera.name()][frame][1] = tmp
 
     def flip_person(self, a, b, camera: Camera):
-        """
-        Swaps all hand data (both hands) between person a and person b,
-        restricted to the specified camera only.
-        """
         camera_name = camera.name()
         for frame in range(camera.frame_count):
-            # Swap the entire frame data (both hands) between persons
             self.data[a][camera_name][frame], self.data[b][camera_name][frame] = \
                 self.data[b][camera_name][frame], self.data[a][camera_name][frame]
 

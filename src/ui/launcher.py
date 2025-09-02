@@ -111,7 +111,7 @@ class Launcher(QMainWindow):
         if not ok or persons <= 1:
             persons = 1
         self.selected_labelings = [None for _ in range(persons)]
-        self.app.create_project(name, self.selected_photos, self.selected_labelings)
+        self.app.create_project_fotos(name, self.selected_photos, self.selected_labelings)
         self.hide()
         self.app.open_project(name)
 
