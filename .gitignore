@@ -8,6 +8,9 @@ synced/
 synced_cut_long/
 *.jpg
 chb/
+EfficientTAM/
+sam2/
+
 
 __pycache__/
 venv/
