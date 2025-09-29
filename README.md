@@ -31,8 +31,7 @@ The code was developed on both Windows and MacOS with M1 chip.
 ### Prerequisites
 
 #### pytorch
-Follow the instructions on the official [pytorch page](https://pytorch.org/). 
-(This code was developed using pytorch 2.5.1)
+This code was developed using pytorch 2.6.0 with cuda 12.6. Follow the instructions on the official [pytorch page](https://pytorch.org/get-started/previous-versions/). Make sure to download the official [CUDA 12.6 toolkit](https://developer.nvidia.com/cuda-12-6-0-download-archive) first, otherwise it will not work.
 
 Make sure to have CUDA drivers installed if NVIDIA GPUs are available.
 You find more information on the [official website](https://developer.nvidia.com/cuda-downloads).
@@ -41,7 +40,7 @@ You find more information on the [official website](https://developer.nvidia.com
 Install ninja using the instructions in the [official website](https://ninja-build.org/).
 
 #### mmpose
-Follow the installation instructions on the [mmpose website](https://mmpose.readthedocs.io/en/latest/installation.html).
+Follow the installation instructions on the [mmpose website](https://mmpose.readthedocs.io/en/latest/installation.html) but instead of doing "mim install mmcv" do "pip install mmcv==2.1.0 -f https://download.openmmlab.com/mmcv/dist/cu126/torch2.6.0/index.html" instead
 (The code was developed using mmpose v1.3.0)
 
 #### SAM2 or EfficientTAM (EfficientTAM recommended)
