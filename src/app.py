@@ -6,6 +6,8 @@ import sys
 import os
 from pathlib import Path
 import shutil
+import json
+import cv2
 
 class App(QApplication):
     """
@@ -29,41 +31,31 @@ class App(QApplication):
             self.launcher.show()
             print("Launcher shown")
 
-    def open_project(self, dataset_name):
+    def open_project(self, dataset_name, initial_camera_name=None, initial_frame_idx=None):
         """
-        Opens the project specified by the dataset name.
-        If opening fails, it displays an error message.
+        Open the project UI.
 
         Args:
-            dataset_name (str): The name of the dataset to open.
+            dataset_name (str): dataset/folder name under inputs/
+            initial_camera_name (str|None): optional camera to select on load
+            initial_frame_idx (int|None): optional exact frame index to jump to
         """
-        print("Dataset name, ", dataset_name)
+        print("Dataset name:", dataset_name)
         try:
-            self.current_project = Project(self, dataset_name)
+            self.current_project = Project(
+                self,
+                dataset_name,
+                initial_camera_name=initial_camera_name,
+                initial_frame_idx=initial_frame_idx,
+            )
             self.current_project.window.show()
             print("Project window shown")
-        except ValueError as e:
-            print(e)
-            QErrorMessage(self, f"Error opening project: {e}").exec_()
-            quit(-1)
+        except Exception as e:
+            print(f"[open_project] Failed to open project '{dataset_name}': {e}")
+            traceback.print_exc()
+            self.current_project = None
+            return False
 
-    def open_project_foto(self, dataset_name):
-        """
-        Opens the project specified by the dataset name.
-        If opening fails, it displays an error message.
-
-        Args:
-            dataset_name (str): The name of the dataset to open.
-        """
-        print("Dataset name, ", dataset_name)
-        try:
-            self.current_project = Project(self, dataset_name)
-            self.current_project.window.show()
-            print("Project window shown")
-        except ValueError as e:
-            print(e)
-            QErrorMessage(self, f"Error opening project: {e}").exec_()
-            quit(-1)
 
     def get_project_names(self):
         """
@@ -127,6 +119,48 @@ class App(QApplication):
                 if file.resolve() == (person_path / "hand_poses_2d.npz").resolve():
                     continue
                 shutil.copy(file, person_path / "hand_poses_2d.npz")
+
+    def open_project_specific_frame(self, name, videos, persons, frame_idx: int):
+        """
+        Create/prepare project assets (like other flows), then open the project
+        at a specific frame of the single selected video.
+        """
+        # --- validation ---
+        if not videos or len(videos) != 1:
+            raise ValueError("open_project_specific_frame requires exactly one selected video.")
+        video_path = Path(videos[0])
+        if not video_path.exists():
+            raise FileNotFoundError(f"Video not found: {video_path}")
+
+        # --- copy inputs (same behavior as other flows) ---
+        inputs_dir = Path("inputs") / name
+        inputs_dir.mkdir(parents=True, exist_ok=True)
+        dst_video = inputs_dir / video_path.name
+        if video_path.resolve() != dst_video.resolve():
+            shutil.copy(video_path, dst_video)
+
+        # --- per-person setup (same behavior as other flows) ---
+        for person_idx, npz_file in enumerate(persons or []):
+            out_dir = Path("output_3d") / f"{name}_{person_idx}"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            if npz_file:
+                npz_file = Path(npz_file)
+                dst = out_dir / "hand_poses_2d.npz"
+                if npz_file.resolve() != dst.resolve():
+                    shutil.copy(npz_file, dst)
+
+        # Determine camera name (video-mode cameras are basenames without extension)
+        camera_name = video_path.stem
+
+        # --- open the project at the specific camera+frame ---
+        # If your existing open_project already builds and shows the UI,
+        # pass the initial camera/frame in (after updating Project to accept these).
+        self.open_project(
+            name,
+            initial_camera_name=camera_name,
+            initial_frame_idx=int(frame_idx),
+        )
+
 
     def parse_args(self):
         """

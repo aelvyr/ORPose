@@ -13,7 +13,7 @@ class Project:
     IMAGE_EXTS = {'.png', '.jpg', '.jpeg'}
     VIDEO_EXTS = {'.mp4', '.mov', '.avi', '.mkv', '.m4v', '.webm'}
     
-    def __init__(self, app, dataset_name):
+    def __init__(self, app, dataset_name, *, initial_camera_name=None, initial_frame_idx=None):
         """
         Initialize the application for the given dataset.
         """
@@ -32,6 +32,7 @@ class Project:
                        foto_mode=self.foto_mode,
                        foto_index=self.foto_index)
         self.dataset = PoseData(self)
+
         print(self.available_cameras())
         self.current_camera = self.cameras.get(0)
         self.current_hand = 0
@@ -40,9 +41,37 @@ class Project:
         self.current_person = 0
         self.frame_step = 1 if self.foto_mode else 30
         self.keypoints_hidden = False
+
+        if initial_camera_name is not None:
+            self._select_camera_by_name(initial_camera_name)
+
         self.window = ProjectWindow(self)
         
+        # If a starting frame is requested, jump there and render
+        if initial_frame_idx is not None and hasattr(self.current_camera, "goto_frame"):
+            # Clamp safely into range if needed
+            try:
+                # Safely cap within [0, frame_count-1], but keep exact index (no frame_step rounding)
+                max_idx = max(0, self.current_camera.frame_count - 1)
+                target = min(max(0, int(initial_frame_idx)), max_idx)
+                self.current_camera.goto_frame(target)
+            except Exception:
+                # If camera is not ready or fails, fall back to 0
+                self.current_camera.goto_frame(0)
+            # Render the requested frame
+            if hasattr(self.window, "canvas") and hasattr(self.window.canvas, "viewport"):
+                self.window.canvas.viewport.render_current_frame()
 
+    # ---------- new helper ----------
+    def _select_camera_by_name(self, camera_name: str):
+        """
+        Switch to the camera with the given name (video-mode: stem; foto-mode: prefix before underscore).
+        """
+        names = self.available_cameras()
+        if camera_name in names:
+            idx = names.index(camera_name)
+            self.current_camera = self.cameras.get(idx)
+            
     def available_cameras(self):
         """
         Return a list of available cameras for the current project.

@@ -1,4 +1,5 @@
-from PyQt5.QtWidgets import QInputDialog, QMessageBox, QFormLayout, QMainWindow, QVBoxLayout, QWidget, QPushButton, QLabel, QComboBox, QFileDialog
+from PyQt5.QtWidgets import QInputDialog, QMessageBox, QFormLayout, QMainWindow, QVBoxLayout, QWidget, QPushButton, QLabel, QComboBox, QFileDialog, QHBoxLayout
+import cv2
 
 class Launcher(QMainWindow):
     """
@@ -29,8 +30,16 @@ class Launcher(QMainWindow):
         self.selected_videos = []
         video_select_button.clicked.connect(self.handle_video_selection)
         create_button = QPushButton("Create new labeling from videos")
-        create_button.clicked.connect(self.handle_create_labeling)
-        actions_layout.addRow(video_select_button, create_button)
+        # NEW: "Create labeling for specific frame"
+        create_specific_btn = QPushButton("Create labeling for specific frame")
+        create_specific_btn.clicked.connect(self.handle_create_labeling_specific_frame)
+
+        # Put both buttons on the same row (right side of the form)
+        right_btns = QHBoxLayout()
+        right_btns.addWidget(create_button)
+        right_btns.addWidget(create_specific_btn)
+
+        actions_layout.addRow(video_select_button, right_btns)
 
         # ✅ Fotos (images)
         photo_select_button = QPushButton("Select Fotos")
@@ -161,3 +170,70 @@ class Launcher(QMainWindow):
         """
         self.hide()
         self.app.open_project(self.projects[self.selected_project_idx])
+
+    def handle_create_labeling_specific_frame(self):
+        """
+        Opens a specific frame from a single selected video for labeling.
+        Uses the same leading arguments as other create/import flows:
+        open_video_at_frame(name, self.selected_videos, self.selected_labelings, frame_idx)
+        """
+        # require exactly one selected video
+        if not self.selected_videos:
+            QMessageBox.warning(self, "No video selected", "Please select exactly one video.")
+            return
+        if len(self.selected_videos) != 1:
+            QMessageBox.warning(self, "Multiple videos selected", "Please select exactly one video for this action.")
+            return
+
+        video_path = self.selected_videos[0]
+
+        # get total frames (bounds), if cv2 is available
+        total_frames = None
+        try:
+            import cv2
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                QMessageBox.critical(self, "Video error", f"Cannot open video file:\n{video_path}")
+                return
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+            cap.release()
+            if total_frames <= 0:
+                QMessageBox.critical(self, "Video error", "This video appears to have no frames.")
+                return
+        except Exception:
+            # proceed without bounds; app should validate
+            total_frames = None
+
+        # ask dataset name (to keep API parity with other flows)
+        name, ok = QInputDialog.getText(self, "Create Labeling (specific frame)", "Enter the dataset name:")
+        if not ok:
+            return
+
+        # ask number of persons -> build self.selected_labelings like the others
+        persons, ok = QInputDialog.getInt(self, "Create Labeling (specific frame)", "Enter the number of persons:", min=1)
+        if not ok or persons <= 1:
+            persons = 1
+        self.selected_labelings = [None for _ in range(persons)]
+
+        # ask for frame index (0-based), with safe bounds if we know them
+        if total_frames is not None:
+            frame_idx, ok = QInputDialog.getInt(
+                self,
+                "Specific Frame",
+                f"Enter 0-based frame index (0 … {total_frames - 1}):",
+                value=0, min=0, max=max(0, total_frames - 1)
+            )
+        else:
+            frame_idx, ok = QInputDialog.getInt(
+                self,
+                "Specific Frame",
+                "Enter 0-based frame index:",
+                value=0, min=0, max=2_147_483_647
+            )
+        if not ok:
+            return
+
+   
+        # IMPORTANT: same leading args (name, selected_videos, selected_labelings), plus frame_idx
+        self.app.open_project_specific_frame(name, self.selected_videos, self.selected_labelings, frame_idx)
+      
