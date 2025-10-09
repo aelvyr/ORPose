@@ -52,24 +52,35 @@ class App(QApplication):
             print("Project window shown")
         except Exception as e:
             print(f"[open_project] Failed to open project '{dataset_name}': {e}")
-            traceback.print_exc()
             self.current_project = None
             return False
 
 
-    def get_project_names(self):
+    def get_project_names(self, root="output_3d"):
         """
-        Returns a list of project names which the application knows about.
+        Return unique project names found in `root`.
+        If a filename ends with _<digits> (e.g., "project_3"), strip that suffix.
+        File extensions are ignored.
         """
         projects = []
-        for file in os.listdir("output_3d"):
-            parts = file.split("_")
-            if len(parts) < 2:
-                projects.append(parts[0])
-                continue
-            name = file[:-(len(parts[-1])+1)]
-            if name not in projects:
+        seen = set()
+
+        if not os.path.isdir(root):
+            return projects
+
+        for entry in os.listdir(root):
+            # drop extension
+            name, _ext = os.path.splitext(entry)
+
+            # strip trailing "_<number>" if present
+            parts = name.rsplit("_", 1)
+            if len(parts) == 2 and parts[1].isdigit():
+                name = parts[0]
+
+            if name and name not in seen:
+                seen.add(name)
                 projects.append(name)
+
         return projects
 
     def create_project(self, name, videos, persons):
@@ -89,7 +100,7 @@ class App(QApplication):
                 continue
             shutil.copy(file, inputs / file.name)
         for person, file in enumerate(persons):
-            person_path = Path("output_3d") / f"{name}_{person}"
+            person_path = Path("output_3d") / f"{name}_{person}" if len(persons) > 1 else Path("output_3d") / f"{name}"
             person_path.mkdir(parents=True, exist_ok=True)
             if file is not None:
                 if file.resolve() == (person_path / "hand_poses_2d.npz").resolve():
@@ -113,7 +124,7 @@ class App(QApplication):
                 continue
             shutil.copy(file, inputs / file.name)
         for person, file in enumerate(persons):
-            person_path = Path("output_3d") / f"{name}_{person}"
+            person_path = Path("output_3d") / f"{name}_{person}" if len(persons) > 1 else Path("output_3d") / f"{name}"
             person_path.mkdir(parents=True, exist_ok=True)
             if file is not None:
                 if file.resolve() == (person_path / "hand_poses_2d.npz").resolve():
@@ -140,14 +151,18 @@ class App(QApplication):
             shutil.copy(video_path, dst_video)
 
         # --- per-person setup (same behavior as other flows) ---
+        num_persons = len(persons or [])
+
         for person_idx, npz_file in enumerate(persons or []):
-            out_dir = Path("output_3d") / f"{name}_{person_idx}"
+            dir_name = name if num_persons == 1 else f"{name}_{person_idx}"
+            out_dir = Path("output_3d") / dir_name
             out_dir.mkdir(parents=True, exist_ok=True)
+
             if npz_file:
-                npz_file = Path(npz_file)
+                src = Path(npz_file)
                 dst = out_dir / "hand_poses_2d.npz"
-                if npz_file.resolve() != dst.resolve():
-                    shutil.copy(npz_file, dst)
+                if src.resolve() != dst.resolve():
+                    shutil.copy(src, dst)
 
         # Determine camera name (video-mode cameras are basenames without extension)
         camera_name = video_path.stem

@@ -30,6 +30,8 @@ class Launcher(QMainWindow):
         self.selected_videos = []
         video_select_button.clicked.connect(self.handle_video_selection)
         create_button = QPushButton("Create new labeling from videos")
+        create_button.clicked.connect(self.handle_create_labeling)
+        actions_layout.addRow(video_select_button, create_button)
         # NEW: "Create labeling for specific frame"
         create_specific_btn = QPushButton("Create labeling for specific frame")
         create_specific_btn.clicked.connect(self.handle_create_labeling_specific_frame)
