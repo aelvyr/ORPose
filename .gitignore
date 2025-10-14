@@ -11,6 +11,10 @@ chb/
 # …except keep anna1 (and all its contents)
 !chb/anna1/
 !chb/anna1/**
+!chb/anna2/
+!chb/anna2/**
+!chb/anna3/
+!chb/anna3/**
 
 EfficientTAM/
 sam2/
