@@ -8,6 +8,10 @@ synced/
 synced_cut_long/
 *.jpg
 chb/
+# …except keep anna1 (and all its contents)
+!chb/anna1/
+!chb/anna1/**
+
 EfficientTAM/
 sam2/
 
