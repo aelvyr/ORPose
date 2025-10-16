@@ -422,6 +422,9 @@ def optimize_hand_pose_no_bmc(initial_pose, filtered_hand_poses_2d, camera_intri
             keypoints = torch.tensor(np.array(hand_pose_2d['keypoints']).squeeze(), dtype=torch.float32, device=device)
             keypoint_scores = torch.tensor(np.array(hand_pose_2d['keypoint_scores']).squeeze(), dtype=torch.float32, device=device)
 
+        if torch.sum(keypoints[0]) > 0 and keypoint_scores[0] > 0:
+            keypoint_scores[0] = 1.0  # Ensure wrist keypoint has high confidence
+
         # Calculate bounding box size for scaling the reprojection error
         valid_keypoints = keypoints[keypoint_scores > 0.1]
         if len(valid_keypoints) > 0 and scale_by_bbox:

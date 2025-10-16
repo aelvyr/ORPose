@@ -248,7 +248,7 @@ def display_frame(frame):
 
 def process_and_visualize_poses(video_path, tracks, output_dir, poses_3d_body=None, camera_matrices=None, 
                              camera_intrinsics=None, camera_extrinsics=None, distortion_coeffs=None,
-                             hide_legs=False, create_label_poses=False, multi_person=False, person_id=None):
+                             hide_legs=False, create_label_poses=False, multi_person=False, person_id=None, visualize_body=True):
     from helpers.predictors import estimate_pose
     """Process and visualize body and hand poses"""
     cap = cv2.VideoCapture(video_path)
@@ -267,7 +267,7 @@ def process_and_visualize_poses(video_path, tracks, output_dir, poses_3d_body=No
             break
 
         # Project 3D poses to 2D for this camera and frame
-        if poses_3d_body is not None:
+        if poses_3d_body is not None and visualize_body:
             # Handle multi-person mode
             if multi_person:
                 if person_id is None:
@@ -320,7 +320,7 @@ def process_and_visualize_poses(video_path, tracks, output_dir, poses_3d_body=No
                     # Estimate and draw hand pose
                     hand_pose = estimate_pose(frame, box, pose_type='hand', show=False)
                     if hand_pose is not None:
-                        draw_pose(frame, hand_pose, pose_type='hand')
+                        draw_pose(frame, hand_pose, pose_type='hand', IS_HAND_THRESHOLD=0.1)
                         hand_pose_2d[hand_id] = hand_pose
 
             if create_label_poses and 1 not in hand_pose_2d.keys():
@@ -328,7 +328,7 @@ def process_and_visualize_poses(video_path, tracks, output_dir, poses_3d_body=No
                 box = np.array([0, 0, 0, 0])
                 hand_pose = estimate_pose(frame, box, pose_type='hand', show=False)
                 if hand_pose is not None:
-                    draw_pose(frame, hand_pose, pose_type='hand')
+                    draw_pose(frame, hand_pose, pose_type='hand', IS_HAND_THRESHOLD=0.1)
                     hand_pose_2d[1] = hand_pose
 
             if create_label_poses and 0 not in hand_pose_2d.keys():
@@ -336,13 +336,13 @@ def process_and_visualize_poses(video_path, tracks, output_dir, poses_3d_body=No
                 box = np.array([0, 0, 0, 0])
                 hand_pose = estimate_pose(frame, box, pose_type='hand', show=False)
                 if hand_pose is not None:
-                    draw_pose(frame, hand_pose, pose_type='hand')
+                    draw_pose(frame, hand_pose, pose_type='hand', IS_HAND_THRESHOLD=0.1)
                     hand_pose_2d[0] = hand_pose
 
         hand_poses_2d.append(hand_pose_2d)
                     
         # Draw body keypoints
-        if body_pose is not None:
+        if body_pose is not None and visualize_body:
             draw_pose(frame, body_pose, pose_type='body', hide_legs=hide_legs)
 
         out.write(frame)
