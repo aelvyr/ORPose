@@ -39,9 +39,12 @@ You find more information on the [official website](https://developer.nvidia.com
 #### Ninja
 Install ninja using the instructions in the [official website](https://ninja-build.org/).
 
+#### MSVC Build Tools
+Install [Build Tools for Visual Studio](https://visualstudio.microsoft.com/downloads/?q=build+tools) on your machine. In the installer, select the “Desktop development with C++” workload.
+
 #### mmpose
-Follow the installation instructions on the [mmpose website](https://mmpose.readthedocs.io/en/latest/installation.html) but instead of doing "mim install mmcv" do "pip install mmcv==2.1.0 -f https://download.openmmlab.com/mmcv/dist/cu126/torch2.6.0/index.html" instead
-(The code was developed using mmpose v1.3.0)
+Follow the installation instructions on the [mmpose website](https://mmpose.readthedocs.io/en/latest/installation.html) but instead of doing "mim install mmcv" do "pip install mmcv==2.1.0 -f https://download.openmmlab.com/mmcv/dist/cu126/torch2.6.0/index.html" instead (this takes a couple of minutes).
+The code was developed using mmpose v1.3.0
 
 #### SAM2 or EfficientTAM (EfficientTAM recommended)
 
