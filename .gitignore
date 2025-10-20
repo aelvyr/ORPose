@@ -24,3 +24,5 @@ __pycache__/
 venv/
 .env/
 env/
+
+vis_dir/

@@ -386,3 +386,187 @@ def read_detection_file(filepath, with_confidence=False, resolution=None, origin
             detections[frame_idx] = boxes
     return detections
 
+def extract_specific_frame(dataset_file):
+    """
+    Load poses_2d from the NPZ, detect the only camera, and find the only frame
+    where at least ONE JOINT on at least ONE HAND has keypoint_scores == 1.
+    Returns both hands from that frame.
+
+    Returns:
+        {
+          "camera": <camera_name>,
+          "frame_index": <int>,
+          "hands": [
+              {"keypoints": np.ndarray(shape=(21, 2/3)), "keypoint_scores": np.ndarray(shape=(21,))},
+              {"keypoints": np.ndarray(shape=(21, 2/3)), "keypoint_scores": np.ndarray(shape=(21,))}
+          ]
+        }
+
+    Raises:
+        ValueError if no such frame exists or if multiple frames match.
+    """
+    data = np.load(dataset_file, allow_pickle=True)
+    poses_2d = data["poses_2d"]
+    if isinstance(poses_2d, np.ndarray) and poses_2d.dtype == object and poses_2d.shape == ():
+        poses_2d = poses_2d.item()
+
+    # --- detect single camera ---
+    cams = list(poses_2d.keys())
+    if len(cams) != 1:
+        raise ValueError(f"Expected exactly one camera, found {len(cams)}: {cams}")
+    cam = cams[0]
+    frames = poses_2d[cam]
+
+    def _extract_kp_and_scores(inst):
+        """Return (keypoints, keypoint_scores) with leading singleton dim squeezed if present."""
+        if isinstance(inst, dict):
+            kp = inst.get("keypoints", None)
+            sc = inst.get("keypoint_scores", inst.get("scores", None))
+        else:
+            kp = getattr(inst, "keypoints", None)
+            sc = getattr(inst, "keypoint_scores", getattr(inst, "scores", None))
+
+        if kp is None or sc is None:
+            return None, None
+
+        kp = np.asarray(kp)
+        sc = np.asarray(sc)
+
+        # squeeze leading singleton person-dim if present (e.g., (1,21,2)->(21,2))
+        if kp.ndim >= 3 and kp.shape[0] == 1:
+            kp = kp[0]
+        if sc.ndim >= 2 and sc.shape[0] == 1:
+            sc = sc[0]
+        return kp, sc
+
+    def _looks_like_instance(obj):
+        """Heuristic: does this object look like an instance with pose fields?"""
+        if obj is None:
+            return False
+        # OpenMMLab InstanceData: attributes
+        if hasattr(obj, "keypoints") or hasattr(obj, "keypoint_scores"):
+            return True
+        # Plain dict instance
+        if isinstance(obj, dict) and ("keypoints" in obj or "keypoint_scores" in obj):
+            return True
+        return False
+    
+    def _iter_instances(entry):
+        """Yield instance objects/dicts for a frame entry across common layouts."""
+        if entry is None:
+            return
+
+        # Case 1: dict with an "instances" list
+        if isinstance(entry, dict) and "instances" in entry:
+            insts = entry.get("instances", [])
+            if isinstance(insts, (list, tuple)):
+                for inst in insts:
+                    if inst is not None:
+                        yield inst
+                return
+
+        # Case 2: dict mapping (e.g., {0: InstanceData, 1: InstanceData, ...})
+        if isinstance(entry, dict):
+            vals = list(entry.values())
+            if vals and all(_looks_like_instance(v) for v in vals):
+                for inst in vals:
+                    if inst is not None:
+                        yield inst
+                return
+
+        # Case 3: already a list/tuple of instances
+        if isinstance(entry, (list, tuple)):
+            for inst in entry:
+                if inst is not None:
+                    yield inst
+            return
+
+        # Case 4: object with `.instances` attribute (list-like)
+        if hasattr(entry, "instances"):
+            try:
+                for inst in entry.instances:
+                    if inst is not None:
+                        yield inst
+                return
+            except TypeError:
+                # .instances isn't iterable; fall through to yield entry
+                pass
+
+        # Fallback: assume it's a single instance
+        yield entry
+
+    matching = []
+    for fi in range(len(frames)):
+        entry = frames[fi]
+        hands = []
+        for inst in _iter_instances(entry):
+            kp, sc = _extract_kp_and_scores(inst)
+            if kp is None or sc is None:
+                continue
+            hands.append((kp, sc))
+           
+
+        # Expect exactly two hands in the frame
+        if len(hands) != 2:
+            continue
+
+        # Accept if at least ONE JOINT on at least ONE hand has score == 1
+        if any(np.any(sc == 1) for _, sc in hands):
+            matching.append((fi, hands))
+
+    if len(matching) == 0:
+        raise ValueError("No frame found where any joint on any hand has keypoint_scores == 1.")
+    if len(matching) > 1:
+        raise ValueError(f"Multiple frames match the criterion (>=1 joint with score 1): {[fi for fi, _ in matching]}")
+
+    frame_idx, hands = matching[0]
+    return {
+        "camera": cam,
+        "frame_index": frame_idx,
+        "hands": [
+            {"keypoints": hands[0][0], "keypoint_scores": hands[0][1]},
+            {"keypoints": hands[1][0], "keypoint_scores": hands[1][1]},
+        ],
+    }
+
+def _field(obj, name):
+    """Get 'keypoints' / 'keypoint_scores' from dict or object."""
+    if isinstance(obj, dict):
+        return obj.get(name)
+    return getattr(obj, name, None)
+
+def _to_xy(arr):
+    """Return array shaped (N, 2) from (N,2) or (1,N,2) or list-like."""
+    a = np.asarray(arr)
+    if a.ndim == 3 and a.shape[0] == 1:
+        a = a[0]
+    if a.ndim != 2 or a.shape[-1] != 2:
+        # best effort: flatten pairs
+        a = a.reshape(-1, 2)
+    return a
+
+def _to_1d(arr):
+    """Return 1D float array (N,) from (N,) or (1,N) etc."""
+    a = np.asarray(arr).squeeze()
+    if a.ndim != 1:
+        a = a.reshape(-1)
+    return a.astype(float, copy=False)
+
+def per_joint_distances(det_hand, gt_hand, threshold=0.3):
+    """
+    Euclidean distance per joint between det_hand and gt_hand.
+    Places NaN if either score <= threshold at that joint.
+    """
+    det_xy = _to_xy(_field(det_hand, 'keypoints'))
+    det_sc = _to_1d(_field(det_hand, 'keypoint_scores'))
+
+    gt_xy  = _to_xy(_field(gt_hand,  'keypoints'))
+    gt_sc  = _to_1d(_field(gt_hand,  'keypoint_scores'))
+
+    n = min(det_xy.shape[0], gt_xy.shape[0], det_sc.size, gt_sc.size)
+    det_xy, gt_xy, det_sc, gt_sc = det_xy[:n], gt_xy[:n], det_sc[:n], gt_sc[:n]
+
+    dists = np.linalg.norm(det_xy - gt_xy, axis=1)
+    valid = (det_sc > threshold) & (gt_sc > threshold)
+    dists[~valid] = np.nan
+    return dists  # shape (n,)
