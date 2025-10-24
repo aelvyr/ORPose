@@ -263,19 +263,25 @@ def pose2video(poses_3d_body, output_dir, video_name, poses_3d_hands=None, fps=3
     Create a video of 3D pose visualization.
     
     Args:
-        poses_3d_body: 3D body poses - single person (array) or multi-person (dict)
+        poses_3d_body: 3D body poses - single person (array) or multi-person (dict), or None for hands-only
         output_dir: Directory to save the video
         video_name: Name of the output video file
         poses_3d_hands: 3D hand poses (optional)
         fps: Frames per second for the video
         xlim, ylim, zlim: Axis limits (optional)
         left_wrist_index, right_wrist_index: Indices for wrist keypoints
-        render_body: Whether to render body keypoints
+        render_body: Whether to render body keypoints (automatically False if poses_3d_body is None)
         dynamic_limits: Whether to calculate limits dynamically
         use_wholebody: Whether using wholebody model
         multi_person: Whether this is multi-person data
         person_id: Specific person ID to visualize (for multi-person mode)
     """
+    
+    # If poses_3d_body is None, automatically disable body rendering
+    if poses_3d_body is None:
+        render_body = False
+        if poses_3d_hands is None:
+            raise ValueError("Either poses_3d_body or poses_3d_hands must be provided")
     
     if multi_person:
         if isinstance(poses_3d_body, dict):
@@ -300,6 +306,14 @@ def pose2video(poses_3d_body, output_dir, video_name, poses_3d_hands=None, fps=3
         # Single person mode
         current_poses_3d_body = poses_3d_body
         current_poses_3d_hands = poses_3d_hands
+    
+    # Determine the number of frames from available data
+    if current_poses_3d_body is not None:
+        num_frames = len(current_poses_3d_body)
+    elif current_poses_3d_hands is not None:
+        num_frames = len(current_poses_3d_hands)
+    else:
+        raise ValueError("No pose data available to visualize")
         
     fig = plt.figure()
     ax = plt.axes(projection='3d')
@@ -313,58 +327,71 @@ def pose2video(poses_3d_body, output_dir, video_name, poses_3d_hands=None, fps=3
         num_model_keypoints = num_keypoints
     
     # Calculate dynamic limits if requested
+    # When dynamic_limits=True, compute limits per frame with rolling average for smooth tracking
+    rolling_limits = None
     if dynamic_limits:
-        # Initialize with the first point
-        min_x, max_x = float('inf'), float('-inf')
-        min_y, max_y = float('inf'), float('-inf')
-        min_z, max_z = float('inf'), float('-inf')
+        rolling_window = 10  # Number of frames for rolling average
+        rolling_limits = {
+            'window': rolling_window,
+            'history_x': [],
+            'history_y': [],
+            'history_z': [],
+        }
         
-        # Consider both body and hand points for dynamic limits
-        if render_body:
-            for frame in range(len(current_poses_3d_body)):
-                valid_points = current_poses_3d_body[frame][~np.isnan(current_poses_3d_body[frame]).any(axis=1)]
-                if len(valid_points) > 0:
-                    min_x = min(min_x, np.min(valid_points[:, 0]))
-                    max_x = max(max_x, np.max(valid_points[:, 0]))
-                    min_y = min(min_y, np.min(valid_points[:, 1]))
-                    max_y = max(max_y, np.max(valid_points[:, 1]))
-                    min_z = min(min_z, np.min(valid_points[:, 2]))
-                    max_z = max(max_z, np.max(valid_points[:, 2]))
+        # Initialize limits from first frame if static limits not provided
+        if xlim is None or ylim is None or zlim is None:
+            # Collect all valid points from first frame
+            first_frame_points = []
             
-        if current_poses_3d_hands is not None:
-            for frame in range(len(current_poses_3d_hands)):
-                valid_points = current_poses_3d_hands[frame][~np.isnan(current_poses_3d_hands[frame]).any(axis=1)]
-                if len(valid_points) > 0:
-                    min_x = min(min_x, np.min(valid_points[:, 0]))
-                    max_x = max(max_x, np.max(valid_points[:, 0]))
-                    min_y = min(min_y, np.min(valid_points[:, 1]))
-                    max_y = max(max_y, np.max(valid_points[:, 1]))
-                    min_z = min(min_z, np.min(valid_points[:, 2]))
-                    max_z = max(max_z, np.max(valid_points[:, 2]))
-
-        # Calculate ranges
-        x_range = max_x - min_x
-        y_range = max_y - min_y
-        z_range = max_z - min_z
-        
-        # Find the largest range
-        max_range = max(x_range, y_range, z_range)
-        
-        # Calculate centers
-        x_center = (max_x + min_x) / 2
-        y_center = (max_y + min_y) / 2
-        z_center = (max_z + min_z) / 2
-        
-        # Add padding
-        padding = 0.1
-        max_range_padded = max_range * (1 + 2 * padding)
-        
-        # Set equal ranges around each center point
-        xlim = (x_center - max_range_padded/2, x_center + max_range_padded/2)
-        ylim = (y_center - max_range_padded/2, y_center + max_range_padded/2)
-        zlim = (z_center - max_range_padded/2, z_center + max_range_padded/2)
+            if render_body and current_poses_3d_body is not None:
+                body_points = current_poses_3d_body[0]
+                valid_mask = ~(np.isnan(body_points).any(axis=1) | np.isinf(body_points).any(axis=1))
+                valid_body_points = body_points[valid_mask]
+                if len(valid_body_points) > 0:
+                    first_frame_points.append(valid_body_points)
+            
+            if current_poses_3d_hands is not None:
+                hand_points = current_poses_3d_hands[0]
+                valid_mask = ~(np.isnan(hand_points).any(axis=1) | np.isinf(hand_points).any(axis=1))
+                valid_hand_points = hand_points[valid_mask]
+                if len(valid_hand_points) > 0:
+                    first_frame_points.append(valid_hand_points)
+            
+            if first_frame_points:
+                combined_points = np.vstack(first_frame_points)
+                
+                # Calculate initial min/max
+                init_min_x, init_max_x = np.min(combined_points[:, 0]), np.max(combined_points[:, 0])
+                init_min_y, init_max_y = np.min(combined_points[:, 1]), np.max(combined_points[:, 1])
+                init_min_z, init_max_z = np.min(combined_points[:, 2]), np.max(combined_points[:, 2])
+                
+                # Calculate ranges
+                x_range = init_max_x - init_min_x
+                y_range = init_max_y - init_min_y
+                z_range = init_max_z - init_min_z
+                
+                # Find the largest range for equal scaling
+                max_range = max(x_range, y_range, z_range)
+                
+                # Avoid zero or very small ranges
+                if max_range < 1e-6:
+                    max_range = 1.0
+                
+                # Calculate centers
+                x_center = (init_max_x + init_min_x) / 2
+                y_center = (init_max_y + init_min_y) / 2
+                z_center = (init_max_z + init_min_z) / 2
+                
+                # Add padding
+                padding = 0.1
+                max_range_padded = max_range * (1 + 2 * padding)
+                
+                # Set initial limits
+                xlim = (x_center - max_range_padded/2, x_center + max_range_padded/2)
+                ylim = (y_center - max_range_padded/2, y_center + max_range_padded/2)
+                zlim = (z_center - max_range_padded/2, z_center + max_range_padded/2)
     
-    # Set the axis limits if provided
+    # Set the axis limits if provided or calculated
     if xlim is not None and ylim is not None and zlim is not None:
         ax.axes.set_xlim3d(left=xlim[0], right=xlim[1]) 
         ax.axes.set_ylim3d(bottom=ylim[0], top=ylim[1]) 
@@ -372,7 +399,7 @@ def pose2video(poses_3d_body, output_dir, video_name, poses_3d_hands=None, fps=3
     scat = None
     lines = []
     
-    if render_body:
+    if render_body and current_poses_3d_body is not None:
         scat = ax.scatter3D(current_poses_3d_body[0, :, 0], current_poses_3d_body[0, :, 1], current_poses_3d_body[0, :, 2])
         for pair in keypoint_pairs:
             idx1, idx2 = pair
@@ -401,8 +428,85 @@ def pose2video(poses_3d_body, output_dir, video_name, poses_3d_hands=None, fps=3
             hands.append(lines_hands)    
     
     def update(frame_idx):
+        # Update dynamic limits if enabled
+        if dynamic_limits and rolling_limits is not None:
+            # Collect all valid points for current frame
+            all_points = []
+            
+            if render_body and current_poses_3d_body is not None:
+                body_points = current_poses_3d_body[frame_idx]
+                # Filter out NaN and inf values
+                valid_mask = ~(np.isnan(body_points).any(axis=1) | np.isinf(body_points).any(axis=1))
+                valid_body_points = body_points[valid_mask]
+                if len(valid_body_points) > 0:
+                    all_points.append(valid_body_points)
+            
+            if current_poses_3d_hands is not None:
+                hand_points = current_poses_3d_hands[frame_idx]
+                # Filter out NaN and inf values
+                valid_mask = ~(np.isnan(hand_points).any(axis=1) | np.isinf(hand_points).any(axis=1))
+                valid_hand_points = hand_points[valid_mask]
+                if len(valid_hand_points) > 0:
+                    all_points.append(valid_hand_points)
+            
+            if all_points:
+                # Combine all valid points
+                combined_points = np.vstack(all_points)
+                
+                # Calculate min/max for this frame, handling edge cases
+                if len(combined_points) > 0:
+                    frame_min_x, frame_max_x = np.min(combined_points[:, 0]), np.max(combined_points[:, 0])
+                    frame_min_y, frame_max_y = np.min(combined_points[:, 1]), np.max(combined_points[:, 1])
+                    frame_min_z, frame_max_z = np.min(combined_points[:, 2]), np.max(combined_points[:, 2])
+                    
+                    # Add to rolling history
+                    rolling_limits['history_x'].append((frame_min_x, frame_max_x))
+                    rolling_limits['history_y'].append((frame_min_y, frame_max_y))
+                    rolling_limits['history_z'].append((frame_min_z, frame_max_z))
+                    
+                    # Keep only the last N frames
+                    window = rolling_limits['window']
+                    if len(rolling_limits['history_x']) > window:
+                        rolling_limits['history_x'] = rolling_limits['history_x'][-window:]
+                        rolling_limits['history_y'] = rolling_limits['history_y'][-window:]
+                        rolling_limits['history_z'] = rolling_limits['history_z'][-window:]
+                    
+                    # Compute rolling average of min/max
+                    avg_min_x = np.mean([h[0] for h in rolling_limits['history_x']])
+                    avg_max_x = np.mean([h[1] for h in rolling_limits['history_x']])
+                    avg_min_y = np.mean([h[0] for h in rolling_limits['history_y']])
+                    avg_max_y = np.mean([h[1] for h in rolling_limits['history_y']])
+                    avg_min_z = np.mean([h[0] for h in rolling_limits['history_z']])
+                    avg_max_z = np.mean([h[1] for h in rolling_limits['history_z']])
+                    
+                    # Calculate ranges
+                    x_range = avg_max_x - avg_min_x
+                    y_range = avg_max_y - avg_min_y
+                    z_range = avg_max_z - avg_min_z
+                    
+                    # Find the largest range for equal scaling
+                    max_range = max(x_range, y_range, z_range)
+                    
+                    # Avoid zero or very small ranges
+                    if max_range < 1e-6:
+                        max_range = 1.0
+                    
+                    # Calculate centers
+                    x_center = (avg_max_x + avg_min_x) / 2
+                    y_center = (avg_max_y + avg_min_y) / 2
+                    z_center = (avg_max_z + avg_min_z) / 2
+                    
+                    # Add padding
+                    padding = 0.1
+                    max_range_padded = max_range * (1 + 2 * padding)
+                    
+                    # Update axis limits
+                    ax.set_xlim3d(x_center - max_range_padded/2, x_center + max_range_padded/2)
+                    ax.set_ylim3d(y_center - max_range_padded/2, y_center + max_range_padded/2)
+                    ax.set_zlim3d(z_center - max_range_padded/2, z_center + max_range_padded/2)
+        
         # Update body if rendering is enabled
-        if render_body and scat is not None:
+        if render_body and scat is not None and current_poses_3d_body is not None:
             scat._offsets3d = (current_poses_3d_body[frame_idx, :, 0], current_poses_3d_body[frame_idx, :, 1], current_poses_3d_body[frame_idx, :, 2])
             for pair, line in zip(keypoint_pairs, lines):
                 idx1, idx2 = pair
@@ -420,7 +524,7 @@ def pose2video(poses_3d_body, output_dir, video_name, poses_3d_hands=None, fps=3
                         idx2 += i*num_keypoints_hands
                         line[0].set_data_3d(np.array([current_poses_3d_hands[frame_idx, idx1], current_poses_3d_hands[frame_idx, idx2]]).T)
 
-    ani = animation.FuncAnimation(fig, update, len(current_poses_3d_body))
+    ani = animation.FuncAnimation(fig, update, num_frames)
 
     FFwriter = animation.FFMpegWriter(fps=fps, bitrate=1000)
     ani.save(os.path.join(output_dir, f'{video_name}.mp4'), writer=FFwriter)
@@ -458,44 +562,16 @@ def _pose2video_multi_person(poses_3d_body_dict, output_dir, video_name, poses_3
     colors = plt.cm.Set1(np.linspace(0, 1, len(person_ids)))  # Different colors for each person
     
     # Calculate dynamic limits if requested
+    # When dynamic_limits=True, compute limits per frame with rolling average for smooth tracking
+    rolling_limits = None
     if dynamic_limits:
-        min_x, max_x = float('inf'), float('-inf')
-        min_y, max_y = float('inf'), float('-inf')
-        min_z, max_z = float('inf'), float('-inf')
-        
-        for person_id, poses_3d_body in poses_3d_body_dict.items():
-            if render_body:
-                for frame in range(len(poses_3d_body)):
-                    valid_points = poses_3d_body[frame][~np.isnan(poses_3d_body[frame]).any(axis=1)]
-                    if len(valid_points) > 0:
-                        min_x = min(min_x, np.min(valid_points[:, 0]))
-                        max_x = max(max_x, np.max(valid_points[:, 0]))
-                        min_y = min(min_y, np.min(valid_points[:, 1]))
-                        max_y = max(max_y, np.max(valid_points[:, 1]))
-                        min_z = min(min_z, np.min(valid_points[:, 2]))
-                        max_z = max(max_z, np.max(valid_points[:, 2]))
-                
-            if poses_3d_hands_dict and person_id in poses_3d_hands_dict:
-                poses_3d_hands = poses_3d_hands_dict[person_id]
-                for frame in range(len(poses_3d_hands)):
-                    valid_points = poses_3d_hands[frame][~np.isnan(poses_3d_hands[frame]).any(axis=1)]
-                    if len(valid_points) > 0:
-                        min_x = min(min_x, np.min(valid_points[:, 0]))
-                        max_x = max(max_x, np.max(valid_points[:, 0]))
-                        min_y = min(min_y, np.min(valid_points[:, 1]))
-                        max_y = max(max_y, np.max(valid_points[:, 1]))
-                        min_z = min(min_z, np.min(valid_points[:, 2]))
-                        max_z = max(max_z, np.max(valid_points[:, 2]))
-        
-        # Add some padding
-        padding = 0.1
-        x_range = max_x - min_x
-        y_range = max_y - min_y
-        z_range = max_z - min_z
-        
-        xlim = [min_x - padding * x_range, max_x + padding * x_range]
-        ylim = [min_y - padding * y_range, max_y + padding * y_range]
-        zlim = [min_z - padding * z_range, max_z + padding * z_range]
+        rolling_window = 10  # Number of frames for rolling average
+        rolling_limits = {
+            'window': rolling_window,
+            'history_x': [],
+            'history_y': [],
+            'history_z': [],
+        }
     
     # Set up the plot
     if xlim: ax.set_xlim(xlim)
