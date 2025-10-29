@@ -7,6 +7,7 @@ tim_paper/
 synced/
 synced_cut_long/
 visualizations/
+single_frame_vis/
 *.jpg
 chb/
 # …except keep anna1 (and all its contents)
@@ -25,3 +26,4 @@ __pycache__/
 venv/
 .env/
 env/
+.DS_Store
