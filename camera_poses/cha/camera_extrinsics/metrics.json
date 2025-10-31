@@ -1,0 +1,89 @@
+{
+    "per_camera_group": {
+        "all": {
+            "mean_error": 0.4520058629849087,
+            "std_error": 0.22573318349150318,
+            "mean_view_score": 226.33333333333334,
+            "mean_n_corres": 1756.5833333333333
+        }
+    },
+    "per_camera": {
+        "gopro4_synced": {
+            "mean_error": 0.4078200449083892,
+            "std_error": 0.21073217089055202,
+            "view_score": 148,
+            "n_corres": 2547
+        },
+        "gopro11_synced": {
+            "mean_error": 0.47380945727017043,
+            "std_error": 0.22972337587678923,
+            "view_score": 392,
+            "n_corres": 1211
+        },
+        "gopro9_synced": {
+            "mean_error": 0.3939840699359823,
+            "std_error": 0.206441838368282,
+            "view_score": 184,
+            "n_corres": 589
+        },
+        "gopro10_synced": {
+            "mean_error": 0.4778065580209418,
+            "std_error": 0.22563484328101988,
+            "view_score": 444,
+            "n_corres": 2053
+        },
+        "gopro8_synced": {
+            "mean_error": 0.45835256134463065,
+            "std_error": 0.23248916011348,
+            "view_score": 124,
+            "n_corres": 359
+        },
+        "gopro7_synced": {
+            "mean_error": 0.46614002395098275,
+            "std_error": 0.2266379433867789,
+            "view_score": 296,
+            "n_corres": 1916
+        },
+        "gopro12_synced": {
+            "mean_error": 0.449849754126146,
+            "std_error": 0.22392998554149157,
+            "view_score": 232,
+            "n_corres": 1262
+        },
+        "gopro6_synced": {
+            "mean_error": 0.46369209465620037,
+            "std_error": 0.22802153297839908,
+            "view_score": 176,
+            "n_corres": 2296
+        },
+        "gopro5_synced": {
+            "mean_error": 0.47434540856283497,
+            "std_error": 0.22633804895868728,
+            "view_score": 256,
+            "n_corres": 2020
+        },
+        "gopro1_synced": {
+            "mean_error": 0.44903428376330334,
+            "std_error": 0.22935241380914712,
+            "view_score": 172,
+            "n_corres": 1697
+        },
+        "gopro3_synced": {
+            "mean_error": 0.4569099508997087,
+            "std_error": 0.23127176648914097,
+            "view_score": 180,
+            "n_corres": 2539
+        },
+        "gopro2_synced": {
+            "mean_error": 0.4370786228901576,
+            "std_error": 0.22156486239079645,
+            "view_score": 112,
+            "n_corres": 2590
+        }
+    },
+    "success_rate": {
+        "n_cameras_to_reconstruct": null,
+        "n_cameras_reconstructed": null,
+        "success_rate": null
+    }
+}

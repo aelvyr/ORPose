@@ -1,19 +1,16 @@
-cam_names = [
-    "gopro1",
-    "gopro2",
-    #"gopro3",
-    "gopro5",
-    "gopro9",
-    #"gopro10",
-    "zoom"
-]
+cam_names = []
+
+for i in range(1, 13):
+    cam_names.append('gopro' + str(i))
 
 num_cameras = len(cam_names)
 num_keypoints = 26
 num_keypoints_hands = 21
+num_wholebody_keypoints = 17  # Number of keypoints in the COCO wholebody body model
 hidden_keypoints = []
 
 # Constants
+# Original 26-keypoint body model pairs
 KEYPOINT_PAIRS = [
     [
         15,
@@ -123,6 +120,32 @@ KEYPOINT_PAIRS = [
         16,
         25
     ]
+]
+
+# Wholebody 17-keypoint body model pairs based on COCO format
+# The keypoints are:
+# 0:nose, 1:left_eye, 2:right_eye, 3:left_ear, 4:right_ear, 5:left_shoulder, 6:right_shoulder, 
+# 7:left_elbow, 8:right_elbow, 9:left_wrist, 10:right_wrist, 11:left_hip, 12:right_hip, 
+# 13:left_knee, 14:right_knee, 15:left_ankle, 16:right_ankle
+WHOLEBODY_KEYPOINT_PAIRS = [
+    [0, 1],  # nose to left eye
+    [0, 2],  # nose to right eye
+    [1, 3],  # left eye to left ear
+    [2, 4],  # right eye to right ear
+    [0, 5],  # nose to left shoulder
+    [0, 6],  # nose to right shoulder
+    [5, 6],  # left to right shoulder
+    [5, 7],  # left shoulder to left elbow
+    [7, 9],  # left elbow to left wrist
+    [6, 8],  # right shoulder to right elbow
+    [8, 10], # right elbow to right wrist
+    [5, 11],  # left shoulder to left hip
+    [6, 12],  # right shoulder to right hip
+    [11, 12], # left hip to right hip
+    [11, 13], # left hip to left knee
+    [13, 15], # left knee to left ankle
+    [12, 14], # right hip to right knee
+    [14, 16]  # right knee to right ankle
 ]
 
 KEYPOINT_PAIRS_HANDS = [
@@ -240,3 +263,27 @@ FIXED_LENGTHS = {
     (12,13):0.5,
     (0, 1):0.22
 }
+
+CANONICAL_HAND_POSE_3D = [
+    [0.0, 0.0, 0.0],       # palm center (0)
+    [0.031, 0.022, 0.0],       # thumb base (1)
+    [0.051, 0.041, 0.01],     # thumb mid (2)
+    [0.074, 0.077, 0.015],      # thumb tip (3)
+    [0.088, 0.101, 0.02],     # thumb end (4)
+    [0.025, 0.098, 0.0],     # index base (5)
+    [0.0375, 0.14, 0.0],    # index mid (6)
+    [0.043, 0.165, 0.0],    # index tip (7)
+    [0.047, 0.185, 0.0],    # index end (8)
+    [0.0, 0.098, 0.0],     # middle base (9)
+    [0.006, 0.149, 0.0],    # middle mid (10)
+    [0.008, 0.178, 0.0],    # middle tip (11)
+    [0.009, 0.203, 0.0],    # middle end (12)
+    [-0.021, 0.093, 0.0],      # ring base (13)
+    [-0.029, 0.146, 0.0],     # ring mid (14)
+    [-0.034, 0.175, 0.0],     # ring tip (15)
+    [-0.036, 0.198, 0.0],     # ring end (16)
+    [-0.041, 0.083, 0.0],      # pinky base (17)
+    [-0.06, 0.122, 0.0],     # pinky mid (18)
+    [-0.0685, 0.141, 0.0],     # pinky tip (19)
+    [-0.075, 0.159, 0.0]      # pinky end (20)
+]

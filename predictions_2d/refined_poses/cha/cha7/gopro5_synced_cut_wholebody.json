@@ -1,0 +1,149 @@
+{
+  "meta_info": {
+    "dataset_name": "hand_poses",
+    "paper_info": {},
+    "keypoint_info": {
+      "skeleton_info": [],
+      "joint_weights": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "sigmas": []
+    }
+  },
+  "left_hand_instances": [
+    {
+      "frame_id": 0,
+      "instances": []
+    },
+    {
+      "frame_id": 30,
+      "instances": []
+    },
+    {
+      "frame_id": 60,
+      "instances": []
+    },
+    {
+      "frame_id": 90,
+      "instances": []
+    },
+    {
+      "frame_id": 120,
+      "instances": []
+    },
+    {
+      "frame_id": 150,
+      "instances": []
+    },
+    {
+      "frame_id": 180,
+      "instances": []
+    },
+    {
+      "frame_id": 210,
+      "instances": []
+    },
+    {
+      "frame_id": 240,
+      "instances": []
+    },
+    {
+      "frame_id": 270,
+      "instances": []
+    }
+  ],
+  "right_hand_instances": [
+    {
+      "frame_id": 0,
+      "instances": []
+    },
+    {
+      "frame_id": 30,
+      "instances": []
+    },
+    {
+      "frame_id": 60,
+      "instances": []
+    },
+    {
+      "frame_id": 90,
+      "instances": []
+    },
+    {
+      "frame_id": 120,
+      "instances": []
+    },
+    {
+      "frame_id": 150,
+      "instances": []
+    },
+    {
+      "frame_id": 180,
+      "instances": []
+    },
+    {
+      "frame_id": 210,
+      "instances": []
+    },
+    {
+      "frame_id": 240,
+      "instances": []
+    },
+    {
+      "frame_id": 270,
+      "instances": []
+    }
+  ],
+  "body_instances": [
+    {
+      "instances": []
+    },
+    {
+      "instances": []
+    },
+    {
+      "instances": []
+    },
+    {
+      "instances": []
+    },
+    {
+      "instances": []
+    },
+    {
+      "instances": []
+    },
+    {
+      "instances": []
+    },
+    {
+      "instances": []
+    },
+    {
+      "instances": []
+    },
+    {
+      "instances": []
+    }
+  ]
+}

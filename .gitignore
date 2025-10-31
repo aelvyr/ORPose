@@ -1,12 +1,29 @@
-vis_dir/
-pose_outputs/
-inputs/
-videos/
-output_3d/
-intrinsics/
-extrinsics/
 bboxes/
 checkpoints/
-configs/
+vector_plots/
+labeled_poses/
+comparisons/
+tim_paper/
+synced/
+synced_cut_long/
+visualizations/
+single_frame_vis/
+*.jpg
+chb/
+# …except keep anna1 (and all its contents)
+!chb/anna1/
+!chb/anna1/**
+!chb/anna2/
+!chb/anna2/**
+!chb/anna3/
+!chb/anna3/**
+
+EfficientTAM/
+sam2/
+
 
 __pycache__/
+venv/
+.env/
+env/
+.DS_Store

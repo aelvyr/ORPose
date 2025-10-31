@@ -77,10 +77,31 @@ def project_point(point_3d, intrinsic_matrix, rot, t, distortion):
                                  rvec, t, 
                                  intrinsic_matrix, 
                                  distortion)
+    
 
-    return points_2d[0][0]
+    return points_2d.flatten()
 
-def load_camera_params(intr_path : str, extr_path : str, convert=True):
+def project_points(points_3d, intrinsic_matrix, rot, t, distortion):
+    """
+    Projects 3D points into 2D using camera intrinsics, extrinsics, and distortion.
+    Args:
+        points_3d: The 3D points as an np.array of shape (N, 3).
+        intrinsic_matrix: Camera intrinsic matrix (3x3).
+        rot: Rotation matrix as a 3x3 matrix.
+        t: Translation vector as a 3x1 vector.
+        distortion: Distortion coefficients.
+    Returns:
+        2D point coordinates as an np.array of shape (N, 2).
+    """
+    (rvec, jac) = cv2.Rodrigues(rot)
+    ## Map the 3D points to 2D points
+    points_2d, _ = cv2.projectPoints(points_3d,
+                                    rvec, t, 
+                                    intrinsic_matrix, 
+                                    distortion)
+    return points_2d.squeeze()
+
+def load_camera_params(intr_path : str, extr_path : str, convert=True, suffix: str = "", named=False, import_extrinsics_matrix=False):
     """
     Loads camera params from specified paths
     Params:
@@ -90,18 +111,32 @@ def load_camera_params(intr_path : str, extr_path : str, convert=True):
     Returns:
         (camera_intrinsics, camera_extrinsics, distortion_coeffs, camera_matrices)
     """
-    camera_intrinsics = []
-    camera_extrinsics = []
-    distortion_coeffs = []
-    camera_matrices = []
+    if named:
+        camera_intrinsics = {}
+        camera_extrinsics = {}
+        distortion_coeffs = {}
+        camera_matrices = {}
+    else:
+        camera_intrinsics = []
+        camera_extrinsics = []
+        distortion_coeffs = []
+        camera_matrices = []
     with open(extr_path, 'r') as f:
         extr = json.load(f)
-    for cam in cam_names:
+    for camera in cam_names:
+        cam = f"{camera}{suffix}"
         with open(os.path.join(intr_path, f'{cam}_intrinsics.json'), 'r') as f:
             intr = json.load(f)['sensors']['RGB']
-        camera_intrinsics.append(np.array(intr['intrinsics']['data']))
-        distortion_coeffs.append(tuple(intr['distortionCoefficients']['data']))
-        if convert:
+        if named:
+            camera_intrinsics[camera] = np.array(intr['intrinsics']['data']).reshape(3,3)
+            distortion_coeffs[camera] = tuple(intr['distortionCoefficients']['data'])
+        else:
+            camera_intrinsics.append(np.array(intr['intrinsics']['data']).reshape(3,3))
+            distortion_coeffs.append(tuple(intr['distortionCoefficients']['data']))
+
+        if import_extrinsics_matrix:
+            extrinsics = (np.array(extr[f"blender2{camera}"]).reshape(4,4)[:3, :3], np.array(extr[f"blender2{camera}"]).reshape(4,4)[:3, 3])
+        elif convert:
             rot = euler_to_rotation_matrix(extr[cam]["euler_ZYX"], cam)
             t = np.array(extr[cam]["t"])
             rot = rot.T
@@ -113,8 +148,55 @@ def load_camera_params(intr_path : str, extr_path : str, convert=True):
             rot = np.array(extr[cam]["rot_mat"]).T
             t = - rot @ np.array(extr[cam]["t"]).flatten()
             extrinsics = (rot, t)
-        camera_extrinsics.append(extrinsics)
+
         camera_matrix = create_camera_matrix(np.array(intr['intrinsics']['data']).reshape(3,3), extrinsics)
-        camera_matrices.append(camera_matrix)
+
+        if named:
+            camera_extrinsics[camera] = extrinsics
+            camera_matrices[camera] = camera_matrix
+        else:
+            camera_extrinsics.append(extrinsics)
+            camera_matrices.append(camera_matrix)
 
     return camera_intrinsics, camera_extrinsics, distortion_coeffs, camera_matrices
+
+def project_points_safe(points_3d, intrinsic_matrix, rot, t, distortion):
+    """
+    Projects 3D points into 2D using camera intrinsics, extrinsics, and distortion.
+    This version includes safety checks for NaN values and other errors.
+    
+    Args:
+        points_3d: The 3D points as an np.array of shape (N, 3).
+        intrinsic_matrix: Camera intrinsic matrix (3x3).
+        rot: Rotation matrix as a 3x3 matrix.
+        t: Translation vector as a 3x1 vector.
+        distortion: Distortion coefficients.
+    Returns:
+        2D point coordinates as an np.array of shape (N, 2).
+    """
+    # Check for NaN values in the input
+    if np.isnan(points_3d).any():
+        print("Warning: NaN values detected in 3D points during projection")
+        # Replace NaN with zeros to avoid crashes
+        points_3d = np.nan_to_num(points_3d, nan=0.0)
+    
+    try:
+        (rvec, jac) = cv2.Rodrigues(rot)
+        
+        # Map the 3D points to 2D points
+        points_2d, _ = cv2.projectPoints(points_3d,
+                                        rvec, t, 
+                                        intrinsic_matrix, 
+                                        distortion)
+        
+        # Check for NaN or infinity in the result
+        if np.isnan(points_2d).any() or np.isinf(points_2d).any():
+            print("Warning: NaN or Inf values detected in projected 2D points")
+            points_2d = np.nan_to_num(points_2d, nan=0.0, posinf=1000.0, neginf=-1000.0)
+        
+        return points_2d.reshape(-1, 2)
+    
+    except Exception as e:
+        print(f"Error in point projection: {str(e)}")
+        # Return zero coordinates as fallback
+        return np.zeros((len(points_3d), 2))

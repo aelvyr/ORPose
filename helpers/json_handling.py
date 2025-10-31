@@ -1,5 +1,6 @@
 import os
 import json
+import numpy as np
 
 def read_keypoints_from_json(folder_path, num_keypoints, cam_names, num_frames, start_frame=0, suffix='_keypoints', identifier=None, remove_features=None, body=True, hands=False):
     """
@@ -134,7 +135,7 @@ def read_keypoints_from_json(folder_path, num_keypoints, cam_names, num_frames, 
 
     return poses_2d
 
-def read_keypoints_mmpose(folder_path, cam_names, num_frames, suffix, num_body_keypoints=26, num_hand_keypoints=21):
+def read_keypoints_mmpose(folder_path, cam_names, num_frames, suffix, num_body_keypoints=17, num_hand_keypoints=21, use_wholebody=False, multi_person=False, matched_poses_path=None):
     """
     Reads 2D keypoints from JSON files and organizes them into the required format.
     
@@ -143,88 +144,245 @@ def read_keypoints_mmpose(folder_path, cam_names, num_frames, suffix, num_body_k
         cam_names: List of camera names.
         num_frames: Number of frames in the dataset.
         suffix: Suffix of the json files.
-        num_body_keypoints: (Optional) Number of keypoints in the estimated pose [default: 26]
+        num_body_keypoints: (Optional) Number of keypoints in the estimated pose [default: 17]
         num_hand_keypoints: (Optional) Number of keypoints per hand in the estimated pose [default:21]
+        use_wholebody: (Optional) Whether to read from wholebody model output files [default: False]
+        multi_person: (Optional) Whether to support multi-person scenarios [default: False]
+        matched_poses_path: (Optional) Path to matched poses JSON file for multi-person mode
     
     Returns:
-        poses_2d_body: A list of 2D poses where each entry is in the format 
-                  poses_2d_body[frame][camera][keypoint] -> (x, y, confidence).
-
-        poses_2d_hands: A list of 2D poses where each entry is in the format 
-                  poses_2d_hands[frame][camera][keypoint] -> (x, y, confidence).
+        For single person (multi_person=False):
+            poses_2d_body: A list of 2D poses where each entry is in the format 
+                      poses_2d_body[frame][camera][keypoint] -> (x, y, confidence).
+            poses_2d_hands: A list of 2D poses where each entry is in the format 
+                      poses_2d_hands[frame][camera][keypoint] -> (x, y, confidence).
         
+        For multi-person (multi_person=True):
+            poses_2d_body: A dict of lists where each key is person_id and value is 
+                      poses_2d_body[person_id][frame][camera][keypoint] -> (x, y, confidence).
+            poses_2d_hands: A dict of lists where each key is person_id and value is
+                      poses_2d_hands[person_id][frame][camera][keypoint] -> (x, y, confidence).
     """
+    import json
     # Dictionary to hold the 2D poses for each frame and camera
     frames_data = {"body":{}, "hands": {}}
 
-    # Get a sorted list of all JSON files in the folder
-    for camera_idx, cam_name in enumerate(cam_names):
-        body = True
-        hands = True
-        try:
-            json_file = os.path.join(f'{folder_path}', f'{cam_name}{suffix}_body.json')
-            with open(json_file, 'r') as f:
-                keypoints_data_body = json.load(f)['instance_info']
-        except:
-            print(f"Body keypoints not available for cam: {cam_name}")
-            body=False
+    if not multi_person:
 
-        try:
-            json_file = os.path.join(f'{folder_path}', f'{cam_name}{suffix}_hands.json')
-            with open(json_file, 'r') as f:
-                keypoints_data_hands = json.load(f)['instance_info']
-        except:
-            print(f"Hand keypoints not available for cam: {cam_name}")
-            hands=False
-
-        for frame_idx in range(num_frames):
+        # Get a sorted list of all JSON files in the folder
+        for camera_idx, cam_name in enumerate(cam_names):
+            body = True
+            hands = True
             
-            if frame_idx not in frames_data['body']:
-                frames_data['body'][frame_idx] = [[(0, 0, 0)]*num_body_keypoints for _ in range(len(cam_names))]
-
-            if frame_idx not in frames_data['hands']:
-                frames_data['hands'][frame_idx] = [[(0, 0, 0)]*(2*num_hand_keypoints) for _ in range(len(cam_names))]
-
-            if body:
-                body_instances = keypoints_data_body[frame_idx]['instances']
-                if len(body_instances) > 1:
-                    print("More than one body detected")    
-
+            if use_wholebody:
                 try:
-                    body_keypoints = body_instances[0]['keypoints']
-                    body_confidence = body_instances[0]['keypoint_scores']
-                    keypoints_body = [(body_keypoints[i][0], body_keypoints[i][1], body_confidence[i]) for i in range(num_body_keypoints)]
-                    
-                    frames_data['body'][frame_idx][camera_idx] = keypoints_body
-
+                    json_file = os.path.join(f'{folder_path}', f'{cam_name}{suffix}_wholebody.json')
+                    with open(json_file, 'r') as f:
+                        wholebody_data = json.load(f)
+                        keypoints_data_body = wholebody_data['body_instances']
+                        left_hand_data = wholebody_data['left_hand_instances']
+                        right_hand_data = wholebody_data['right_hand_instances']
                 except Exception as e:
-                    print(f"body keypoints could not be accessed for {frame_idx}")
-                    print(e)
-                
-            if hands:
-                hand_instances = keypoints_data_hands[frame_idx]['instances']
-                if len(hand_instances) > 2:
-                    print("More than 2 hands detected")
+                    print(f"Wholebody keypoints not available for cam: {cam_name}")
+                    print(f"Error: {str(e)}")
+                    body = False
+                    hands = False
+            else:
+                try:
+                    json_file = os.path.join(f'{folder_path}', f'{cam_name}{suffix}_body.json')
+                    with open(json_file, 'r') as f:
+                        keypoints_data_body = json.load(f)['instance_info']
+                except:
+                    print(f"Body keypoints not available for cam: {cam_name}")
+                    body = False
 
                 try:
-                    hand_keypoints = hand_instances[0]['keypoints']
-                    hand_confidence = hand_instances[0]['keypoint_scores']
-                    if len(hand_instances) > 1:
-                        hand_keypoints.extend(hand_instances[1]['keypoints'])
-                        hand_confidence.extend(hand_instances[1]['keypoint_scores'])
-                    else: 
-                        hand_keypoints.extend([[0, 0]]*num_hand_keypoints)
-                        hand_confidence.extend([0]*num_hand_keypoints)
+                    json_file = os.path.join(f'{folder_path}', f'{cam_name}{suffix}_hands.json')
+                    with open(json_file, 'r') as f:
+                        keypoints_data_hands = json.load(f)['instance_info']
+                except:
+                    print(f"Hand keypoints not available for cam: {cam_name}")
+                    hands = False        
+            
+            for frame_idx in range(num_frames):
+                
+                if frame_idx not in frames_data['body']:
+                    frames_data['body'][frame_idx] = [[(0, 0, 0)]*num_body_keypoints for _ in range(len(cam_names))]
+
+                if frame_idx not in frames_data['hands']:
+                    frames_data['hands'][frame_idx] = [[(0, 0, 0)]*(2*num_hand_keypoints) for _ in range(len(cam_names))]
+
+                if body:
+                    if use_wholebody:
+                        body_instances = keypoints_data_body[frame_idx]['instances']
+                    else:
+                        body_instances = keypoints_data_body[frame_idx]['instances']
+                    
+                    if len(body_instances) > 1:
+                        print(f"More than one body detected for frame {frame_idx}")
+
+                    try:
+                        body_keypoints = body_instances[0]['keypoints']
+                        body_confidence = body_instances[0]['keypoint_scores']
+                        keypoints_body = [(body_keypoints[i][0], body_keypoints[i][1], body_confidence[i]) for i in range(num_body_keypoints)]
+                        
+                        frames_data['body'][frame_idx][camera_idx] = keypoints_body
+
+                    except Exception as e:
+                        print(f"body keypoints could not be accessed for frame {frame_idx}")
+                        print(e)
+                    
+                if hands:
+                    if use_wholebody:
+                        # For wholebody model, we need to combine left and right hand data
+                        left_hand_instances = left_hand_data[frame_idx]['instances']
+                        right_hand_instances = right_hand_data[frame_idx]['instances']
+                        
+                        hand_keypoints = []
+                        hand_confidence = []
+                        
+                        # Process left hand
+                        if left_hand_instances and len(left_hand_instances) > 0:
+                            left_keypoints = left_hand_instances[0]['keypoints']
+                            left_confidence = left_hand_instances[0]['keypoint_scores']
+                            hand_keypoints.extend(left_keypoints)
+                            hand_confidence.extend(left_confidence)
+                        else:
+                            hand_keypoints.extend([[0, 0]]*num_hand_keypoints)
+                            hand_confidence.extend([0]*num_hand_keypoints)
+                        
+                        # Process right hand
+                        if right_hand_instances and len(right_hand_instances) > 0:
+                            right_keypoints = right_hand_instances[0]['keypoints']
+                            right_confidence = right_hand_instances[0]['keypoint_scores']
+                            hand_keypoints.extend(right_keypoints)
+                            hand_confidence.extend(right_confidence)
+                        else:
+                            hand_keypoints.extend([[0, 0]]*num_hand_keypoints)
+                            hand_confidence.extend([0]*num_hand_keypoints)
+                    else:
+                        hand_instances = keypoints_data_hands[frame_idx]['instances']
+                        if len(hand_instances) > 2:
+                            print("More than 2 hands detected")
+
+                        try:
+                            hand_keypoints = hand_instances[0]['keypoints']
+                            hand_confidence = hand_instances[0]['keypoint_scores']
+                            if len(hand_instances) > 1:
+                                hand_keypoints.extend(hand_instances[1]['keypoints'])
+                                hand_confidence.extend(hand_instances[1]['keypoint_scores'])
+                            else: 
+                                hand_keypoints.extend([[0, 0]]*num_hand_keypoints)
+                                hand_confidence.extend([0]*num_hand_keypoints)
+
+                        except Exception as e:
+                            print(f"hand keypoints could not be accessed for {frame_idx}")
+                            print(e)
+                    
                     
                     keypoints_hands = [(hand_keypoints[i][0], hand_keypoints[i][1], hand_confidence[i]) for i in range(len(hand_keypoints))]
                     frames_data['hands'][frame_idx][camera_idx] = keypoints_hands
+                
 
-                except Exception as e:
-                    print(f"hand keypoints could not be accessed for {frame_idx}")
-                    print(e)
-
+    if multi_person and matched_poses_path:
+        # Load matched poses and organize by person_id
+        
+        with open(matched_poses_path, 'r') as f:
+            matched_poses = json.load(f)
+        
+        # Initialize data structures for multi-person
+        poses_2d_body_multi = {}
+        poses_2d_hands_multi = {}
+        
+        # Find all unique person IDs
+        person_ids = set()
+        for frame_data in matched_poses:
+            for matched_instance in frame_data.get('matched_instances', []):
+                person_ids.add(matched_instance['person_id'])
+        
+        # Initialize data for each person
+        for person_id in person_ids:
+            poses_2d_body_multi[person_id] = [[[None for _ in range(num_body_keypoints)] for _ in range(len(cam_names))] for _ in range(num_frames)]
+            poses_2d_hands_multi[person_id] = [[[None for _ in range(2*num_hand_keypoints)] for _ in range(len(cam_names))] for _ in range(num_frames)]
+        
+        # Process matched poses
+        for frame_idx, frame_data in enumerate(matched_poses):
+            if frame_idx >= num_frames:
+                break
+                
+            for matched_instance in frame_data.get('matched_instances', []):
+                person_id = matched_instance['person_id']
+                
+                for instance in matched_instance.get('instances', []):
+                    camera_name = instance['camera_name']
+                    
+                    # Find camera index
+                    try:
+                        cam_idx = cam_names.index(camera_name)
+                    except ValueError:
+                        continue
+                    
+                    # Extract keypoints and confidence scores
+                    keypoints = instance.get('keypoints', [])
+                    confidence_scores = instance.get('confidence_scores', [])
+                    
+                    if len(keypoints) >= num_body_keypoints and len(confidence_scores) >= num_body_keypoints:
+                        # Process body keypoints
+                        body_keypoints = [(keypoints[i][0], keypoints[i][1], confidence_scores[i]) 
+                                        for i in range(num_body_keypoints)]
+                        poses_2d_body_multi[person_id][frame_idx][cam_idx] = body_keypoints
+                        
+                        # For hands, if wholebody data includes hand keypoints
+                        if len(keypoints) > num_body_keypoints:
+                            # Extract hand keypoints (assuming they follow body keypoints)
+                            hand_start_idx = num_body_keypoints
+                            hand_keypoints = [(keypoints[i][0], keypoints[i][1], confidence_scores[i]) 
+                                            for i in range(hand_start_idx, min(len(keypoints), hand_start_idx + 2*num_hand_keypoints))]
+                            
+                            # Pad with zeros if not enough hand keypoints
+                            while len(hand_keypoints) < 2*num_hand_keypoints:
+                                hand_keypoints.append((0, 0, 0))
+                            
+                            poses_2d_hands_multi[person_id][frame_idx][cam_idx] = hand_keypoints
+        
+        # Fill None values with (0, 0, 0)
+        for person_id in person_ids:
+            for frame_idx in range(num_frames):
+                for cam_idx in range(len(cam_names)):
+                    if poses_2d_body_multi[person_id][frame_idx][cam_idx] is None or poses_2d_body_multi[person_id][frame_idx][cam_idx][0] is None:
+                        poses_2d_body_multi[person_id][frame_idx][cam_idx] = [(0, 0, 0)] * num_body_keypoints
+                    if poses_2d_hands_multi[person_id][frame_idx][cam_idx] is None or poses_2d_hands_multi[person_id][frame_idx][cam_idx][0] is None:
+                        poses_2d_hands_multi[person_id][frame_idx][cam_idx] = [(0, 0, 0)] * (2*num_hand_keypoints)
+        
+        return poses_2d_body_multi, poses_2d_hands_multi
+    
+    # Single person mode (original behavior)
     poses_2d_body = [frames_data['body'][frame_idx] for frame_idx in range(num_frames)]
     poses_2d_hands = [frames_data['hands'][frame_idx] for frame_idx in range(num_frames)]
 
     return poses_2d_body, poses_2d_hands
+
+def read_detection_file(filepath, with_confidence=False, resolution=None, original_resolution=None):
+    """Read detection file containing frame index and bounding boxes"""
+    detections = {}
+    stride = 5 if with_confidence else 4
+    with open(filepath, 'r') as f:
+        for line in f:
+            values = list(map(float, line.strip().split()))
+            frame_idx = int(values[0])
+            boxes = []
+            # Each box has 4 coordinates
+            for i in range(1, len(values), stride):
+                boxes.append(values[i:i+4])
+
+            boxes = np.array(boxes)
+
+            if resolution is not None and original_resolution is not None:
+                # Rescale bounding boxes to original resolution
+                boxes[:, 0] *= resolution[0] / original_resolution[0]
+                boxes[:, 1] *= resolution[1] / original_resolution[1]
+                boxes[:, 2] *= resolution[0] / original_resolution[0]
+                boxes[:, 3] *= resolution[1] / original_resolution[1]
+            detections[frame_idx] = boxes
+    return detections
 
