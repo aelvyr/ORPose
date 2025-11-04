@@ -42,14 +42,25 @@ class App(QApplication):
         """
         print("Dataset name:", dataset_name)
         try:
-            self.current_project = Project(
+            proj = Project(
                 self,
                 dataset_name,
                 initial_camera_name=initial_camera_name,
                 initial_frame_idx=initial_frame_idx,
             )
-            self.current_project.window.show()
-            print("Project window shown")
+
+            # Only touch window after confirming it exists
+            win = getattr(proj, "window", None)
+            if win is not None:
+                win.show()
+                print("Project window shown")
+            else:
+                # Defensive log (shouldn't happen if Project sets it)
+                print("[open_project] Warning: project.window is None after Project init")
+
+            self.current_project = proj
+            return True
+        
         except Exception as e:
             print(f"[open_project] Failed to open project '{dataset_name}': {e}")
             self.current_project = None

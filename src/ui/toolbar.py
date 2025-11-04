@@ -94,6 +94,16 @@ class Toolbar(QToolBar):
         self.add_label("Camera:")
         self.camera_selector = QComboBox(self.parentWidget())
         self.camera_selector.addItems(self.project.cameras.data)
+
+        # NEW: reflect the Project's active camera without firing a change
+        try:
+            active_name = self.project.current_camera.name()
+            idx = self.project.cameras.data.index(active_name)
+            self.camera_selector.blockSignals(True)
+            self.camera_selector.setCurrentIndex(idx)
+        finally:
+            self.camera_selector.blockSignals(False)
+
         self.camera_selector.currentIndexChanged.connect(self.project.change_camera)
         self.addWidget(self.camera_selector)
 

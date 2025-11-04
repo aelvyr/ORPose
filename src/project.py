@@ -81,8 +81,9 @@ class Project:
                 self._sticky_frame_idx = target
 
             # Render then reset
-            self.window.canvas.viewport.render_camera_change()
-            self._reset_view_on_camera_change()
+            if getattr(self, "window", None) and hasattr(self.window, "canvas") and hasattr(self.window.canvas, "viewport"):
+                self.window.canvas.viewport.render_camera_change()
+                self._reset_view_on_camera_change()
             
     def available_cameras(self):
         """
