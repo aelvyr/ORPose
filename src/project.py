@@ -20,7 +20,7 @@ class Project:
         self.app = app
         self.dark_mode = False
         self.dataset_name = dataset_name
-
+        self.window = None
         self.video_path = Path("inputs") / self.dataset_name
         # Determine foto mode (folder contains only image files)
         self.foto_mode = self._is_foto_mode()
@@ -35,6 +35,7 @@ class Project:
 
         print(self.available_cameras())
         self.current_camera = self.cameras.get(0)
+        self._sticky_frame_idx = getattr(self.current_camera, "current_frame_idx", 0)
         self.current_hand = 0
         self.current_keypoint = 0
         self.keypoint_advance = 0
@@ -55,6 +56,7 @@ class Project:
                 max_idx = max(0, self.current_camera.frame_count - 1)
                 target = min(max(0, int(initial_frame_idx)), max_idx)
                 self.current_camera.goto_frame(target)
+                self._sticky_frame_idx = getattr(self.current_camera, "current_frame_idx", target)
             except Exception:
                 # If camera is not ready or fails, fall back to 0
                 self.current_camera.goto_frame(0)
@@ -64,13 +66,23 @@ class Project:
 
     # ---------- new helper ----------
     def _select_camera_by_name(self, camera_name: str):
-        """
-        Switch to the camera with the given name (video-mode: stem; foto-mode: prefix before underscore).
-        """
         names = self.available_cameras()
         if camera_name in names:
+            prev_idx = getattr(self.current_camera, "current_frame_idx", getattr(self, "_sticky_frame_idx", 0))
             idx = names.index(camera_name)
             self.current_camera = self.cameras.get(idx)
+
+            if hasattr(self.current_camera, "goto_frame") and hasattr(self.current_camera, "frame_count"):
+                max_idx = max(0, self.current_camera.frame_count - 1)
+                target = max(0, min(prev_idx, max_idx))
+                if self.frame_step > 1:
+                    target -= (target % self.frame_step)
+                self.current_camera.goto_frame(target)
+                self._sticky_frame_idx = target
+
+            # Render then reset
+            self.window.canvas.viewport.render_camera_change()
+            self._reset_view_on_camera_change()
             
     def available_cameras(self):
         """
@@ -91,11 +103,21 @@ class Project:
         return sorted(cameras)
 
     def change_camera(self, index):
-        """
-        Change the current camera to the one at the given index.
-        """
+        prev_idx = getattr(self.current_camera, "current_frame_idx", getattr(self, "_sticky_frame_idx", 0))
         self.current_camera = self.cameras.get(index)
+
+        if hasattr(self.current_camera, "goto_frame") and hasattr(self.current_camera, "frame_count"):
+            max_idx = max(0, self.current_camera.frame_count - 1)
+            target = max(0, min(prev_idx, max_idx))
+            if self.frame_step > 1:
+                target -= (target % self.frame_step)
+            self.current_camera.goto_frame(target)
+            self._sticky_frame_idx = target
+
+        # Draw the new camera view first
         self.window.canvas.viewport.render_camera_change()
+        # Then reset zoom/pan (only on camera change)
+        self._reset_view_on_camera_change()
 
     def change_person(self, index):
         """
@@ -122,6 +144,7 @@ class Project:
         Goes to the last frame of the current camera.
         """
         self.current_camera.goto_frame(self.current_camera.frame_count - 1 - (self.current_camera.frame_count - 1) % self.frame_step)
+        self._sticky_frame_idx = getattr(self.current_camera, "current_frame_idx", self._sticky_frame_idx)
         self.window.canvas.viewport.render_current_frame()
 
     def next_frame(self):
@@ -129,6 +152,7 @@ class Project:
         Goes to the next frame of the current camera.
         """
         self.current_camera.goto_frame(self.current_camera.current_frame_idx + self.frame_step)
+        self._sticky_frame_idx = getattr(self.current_camera, "current_frame_idx", self._sticky_frame_idx)
         self.window.canvas.viewport.render_current_frame()
 
     def prev_frame(self):
@@ -136,6 +160,7 @@ class Project:
         Goes to the previous frame of the current camera.
         """
         self.current_camera.goto_frame(self.current_camera.current_frame_idx - self.frame_step)
+        self._sticky_frame_idx = getattr(self.current_camera, "current_frame_idx", self._sticky_frame_idx)
         self.window.canvas.viewport.render_current_frame()
 
     def goto_first_frame(self):
@@ -143,6 +168,7 @@ class Project:
         Goes to the first frame of the current camera.
         """
         self.current_camera.goto_frame(0)
+        self._sticky_frame_idx = getattr(self.current_camera, "current_frame_idx", self._sticky_frame_idx)
         self.window.canvas.viewport.render_current_frame()
 
     def next_keypoint(self):
@@ -252,3 +278,50 @@ class Project:
         for cam in index:
             index[cam].sort()
         return dict(index)
+    
+    def _reset_view_on_camera_change(self):
+        """
+        Reset zoom/pan to full frame and clear active pan/zoom tools.
+        Call ONLY when changing cameras.
+        """
+        canvas = getattr(self.window, "canvas", None)
+        if not canvas:
+            return
+
+        # 1) Make sure pan/zoom tools are deactivated
+        nav = getattr(canvas, "nav_toolbar", None)
+        if nav:
+            # Best-effort: turn off pan/zoom if they were active
+            try: nav.pan(False)
+            except Exception: pass
+            try: nav.zoom(False)
+            except Exception: pass
+
+        # 2) Prefer the app's canonical reset
+        if hasattr(canvas, "reset_view"):
+            try:
+                canvas.reset_view()
+                return
+            except Exception:
+                pass
+
+        # 3) Fallback: reset axes to the image extent
+        vp = getattr(canvas, "viewport", None)
+        ax = getattr(vp, "axes", None) if vp else None
+        if ax is not None:
+            try:
+                # If an image is drawn, use its extent
+                ims = ax.get_images()
+                if ims:
+                    x0, x1, y0, y1 = ims[-1].get_extent()
+                    ax.set_xlim(x0, x1)
+                    ax.set_ylim(y0, y1)
+                else:
+                    # Generic autoscale fallback
+                    ax.relim()
+                    ax.autoscale_view()
+            except Exception:
+                pass
+            # Ensure canvas updates
+            if hasattr(canvas, "draw"):
+                canvas.draw()

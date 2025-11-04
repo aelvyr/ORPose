@@ -234,8 +234,8 @@ class Launcher(QMainWindow):
             )
         if not ok:
             return
+        
+        self.hide() 
 
-   
-        # IMPORTANT: same leading args (name, selected_videos, selected_labelings), plus frame_idx
         self.app.open_project_specific_frame(name, self.selected_videos, self.selected_labelings, frame_idx)
       

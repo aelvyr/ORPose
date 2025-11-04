@@ -7,3 +7,5 @@ venv/
 env/
 EfficientTAM/
 sam2/
+single_frames/
+jaro*/
