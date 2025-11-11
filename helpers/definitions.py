@@ -1,6 +1,6 @@
 cam_names = []
 
-for i in range(1, 13):
+for i in range(1, 12):
     cam_names.append('gopro' + str(i))
 
 num_cameras = len(cam_names)

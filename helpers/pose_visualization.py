@@ -231,9 +231,9 @@ def visualize_poses(frame, body_pose_3d, initial_hands_3d, hand_poses_2d,
         # Right hand count (bottom right)
         right_text = f"Right Hand: {right_hand_count} views"
         right_text_size = cv2.getTextSize(right_text, cv2.FONT_HERSHEY_SIMPLEX, 1.5, 2)[0]
-        cv2.putText(vis_frame, right_text, 
-                   (width - right_text_size[0] - 10, height - 40), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 0), 2)
+        # cv2.putText(vis_frame, right_text, 
+        #            (width - right_text_size[0] - 10, height - 40), 
+        #            cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 0), 2)
     
     return vis_frame
 
@@ -248,7 +248,7 @@ def display_frame(frame):
 
 def process_and_visualize_poses(video_path, tracks, output_dir, poses_3d_body=None, camera_matrices=None, 
                              camera_intrinsics=None, camera_extrinsics=None, distortion_coeffs=None,
-                             hide_legs=False, create_label_poses=False, multi_person=False, person_id=None, visualize_body=True):
+                             hide_legs=False, create_label_poses=False, multi_person=False, person_id=None):
     from helpers.predictors import estimate_pose
     """Process and visualize body and hand poses"""
     cap = cv2.VideoCapture(video_path)
@@ -267,7 +267,7 @@ def process_and_visualize_poses(video_path, tracks, output_dir, poses_3d_body=No
             break
 
         # Project 3D poses to 2D for this camera and frame
-        if poses_3d_body is not None and visualize_body:
+        if poses_3d_body is not None:
             # Handle multi-person mode
             if multi_person:
                 if person_id is None:
@@ -314,13 +314,13 @@ def process_and_visualize_poses(video_path, tracks, output_dir, poses_3d_body=No
                     x1, y1, x2, y2 = box[0], box[1], box[2], box[3]
                     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
                     # Add hand ID text above the box
-                    cv2.putText(frame, f'Hand {hand_id}', (x1, y1-10), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                    # cv2.putText(frame, f'Hand {hand_id}', (x1, y1-10), 
+                    #         cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
                 
                     # Estimate and draw hand pose
                     hand_pose = estimate_pose(frame, box, pose_type='hand', show=False)
                     if hand_pose is not None:
-                        draw_pose(frame, hand_pose, pose_type='hand', IS_HAND_THRESHOLD=0.1)
+                        draw_pose(frame, hand_pose, pose_type='hand')
                         hand_pose_2d[hand_id] = hand_pose
 
             if create_label_poses and 1 not in hand_pose_2d.keys():
@@ -328,7 +328,7 @@ def process_and_visualize_poses(video_path, tracks, output_dir, poses_3d_body=No
                 box = np.array([0, 0, 0, 0])
                 hand_pose = estimate_pose(frame, box, pose_type='hand', show=False)
                 if hand_pose is not None:
-                    draw_pose(frame, hand_pose, pose_type='hand', IS_HAND_THRESHOLD=0.1)
+                    draw_pose(frame, hand_pose, pose_type='hand')
                     hand_pose_2d[1] = hand_pose
 
             if create_label_poses and 0 not in hand_pose_2d.keys():
@@ -336,13 +336,13 @@ def process_and_visualize_poses(video_path, tracks, output_dir, poses_3d_body=No
                 box = np.array([0, 0, 0, 0])
                 hand_pose = estimate_pose(frame, box, pose_type='hand', show=False)
                 if hand_pose is not None:
-                    draw_pose(frame, hand_pose, pose_type='hand', IS_HAND_THRESHOLD=0.1)
+                    draw_pose(frame, hand_pose, pose_type='hand')
                     hand_pose_2d[0] = hand_pose
 
         hand_poses_2d.append(hand_pose_2d)
                     
         # Draw body keypoints
-        if body_pose is not None and visualize_body:
+        if body_pose is not None:
             draw_pose(frame, body_pose, pose_type='body', hide_legs=hide_legs)
 
         out.write(frame)
@@ -442,21 +442,21 @@ def create_reprojection_videos(poses_3d_body, hand_poses_3d_dict, camera_intrins
                     if not ret:
                         # If we run out of frames, add blank frames
                         blank_frame = np.zeros((frame_height, frame_width, 3), dtype=np.uint8)
-                        cv2.putText(blank_frame, f"{camera} (No data)", (10, 30), 
-                                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                        # cv2.putText(blank_frame, f"{camera} (No data)", (10, 30), 
+                        #             cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
                         camera_frames[camera].append(blank_frame)
                     else:
                         try:
                             # Create a frame for this camera
                             method_frame = frame.copy()
                             
-                            # Add camera name as text label
-                            cv2.putText(method_frame, f"{camera}", (10, 30), 
-                                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+                            # # Add camera name as text label
+                            # cv2.putText(method_frame, f"{camera}", (10, 30), 
+                            #             cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
                             
-                            # Add method name too
-                            cv2.putText(method_frame, f"{method_name}", (10, 70), 
-                                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
+                            # # Add method name too
+                            # cv2.putText(method_frame, f"{method_name}", (10, 70), 
+                            #             cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
                             
                             # Project 3D body pose to 2D
                             body_pose_frame = None
@@ -506,8 +506,8 @@ def create_reprojection_videos(poses_3d_body, hand_poses_3d_dict, camera_intrins
                             print(f"Error processing frame {frame_idx} for camera {camera}: {str(e)}")
                             # Use a copy of the original frame with just the camera name as a fallback
                             fallback_frame = frame.copy()
-                            cv2.putText(fallback_frame, f"{camera} (Error)", (10, 30), 
-                                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                            # cv2.putText(fallback_frame, f"{camera} (Error)", (10, 30), 
+                            #             cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
                             camera_frames[camera].append(fallback_frame)
                     
                     frame_idx += 1
@@ -608,8 +608,8 @@ def create_reprojection_videos(poses_3d_body, hand_poses_3d_dict, camera_intrins
                             method_frame = frame.copy()
                             
                             # Add method name as text label
-                            cv2.putText(method_frame, method_name, (10, 30), 
-                                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+                            # cv2.putText(method_frame, method_name, (10, 30), 
+                            #             cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
                             
                             # Project 3D body pose to 2D
                             if show_body:
@@ -663,14 +663,14 @@ def create_reprojection_videos(poses_3d_body, hand_poses_3d_dict, camera_intrins
                             print(f"Error processing frame {frame_idx} for method {method_name}: {str(e)}")
                             # Use a copy of the original frame with just the method name as a fallback
                             fallback_frame = frame.copy()
-                            cv2.putText(fallback_frame, f"{method_name} (Error)", (10, 30), 
-                                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                            # cv2.putText(fallback_frame, f"{method_name} (Error)", (10, 30), 
+                            #             cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
                             method_frames.append(fallback_frame)
                     else:
                         # If this method doesn't have data for this frame, use a blank frame
                         blank_frame = frame.copy()
-                        cv2.putText(blank_frame, f"{method_name} (No data)", (10, 30), 
-                                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                        # cv2.putText(blank_frame, f"{method_name} (No data)", (10, 30), 
+                        #             cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
                         method_frames.append(blank_frame)
                 
                 # Create combined frame with all methods side by side

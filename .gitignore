@@ -6,8 +6,6 @@ comparisons/
 tim_paper/
 synced/
 synced_cut_long/
-visualizations/
-single_frame_vis/
 *.jpg
 chb/
 # …except keep anna1 (and all its contents)
@@ -20,10 +18,13 @@ chb/
 
 EfficientTAM/
 sam2/
-
+*.7z
 
 __pycache__/
 venv/
 .env/
 env/
-.DS_Store
+
+vis_dir/
+*.MOV
+hand_triangulation_output/
