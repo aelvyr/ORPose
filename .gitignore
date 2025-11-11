@@ -18,7 +18,7 @@ chb/
 
 EfficientTAM/
 sam2/
-
+*.7z
 
 __pycache__/
 venv/
@@ -26,3 +26,5 @@ venv/
 env/
 
 vis_dir/
+*.MOV
+hand_triangulation_output/

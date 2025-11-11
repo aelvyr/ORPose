@@ -59,7 +59,7 @@ EFFICIENTTAM_CONFIG = "configs/efficienttam/efficienttam_ti_512x512.yaml"
 
 # YOLO Rohan model paths
 YOLO_PERSON_WEIGHTS = 'checkpoints/yolo/yolo11l.pt'
-YOLO_HAND_WEIGHTS = 'checkpoints/yolo/rohan_pretrained.pt'
+#YOLO_HAND_WEIGHTS = 'checkpoints/yolo/rohan_pretrained.pt'
 
 # Pose estimation model paths
 HAND_POSE_CONFIG = 'configs/hand_2d_keypoint/rtmpose/hand5/rtmpose-m_8xb256-210e_hand5-256x256.py'
@@ -221,11 +221,11 @@ def initialize_models(use_tam: bool, use_wholebody:bool=False, use_sapiens:bool=
 
     # Initialize YOLO models
     yolo_person = YOLO(YOLO_PERSON_WEIGHTS)
-    yolo_hand = YOLO(YOLO_HAND_WEIGHTS)
+    # yolo_hand = YOLO(YOLO_HAND_WEIGHTS)
     
-    # Configure YOLO hand model settings
-    yolo_hand.conf = 0.5  # NMS confidence threshold
-    yolo_hand.iou = 0.5   # NMS IoU threshold
+    # # Configure YOLO hand model settings
+    # yolo_hand.conf = 0.5  # NMS confidence threshold
+    # yolo_hand.iou = 0.5   # NMS IoU threshold
     
     print(f"Models initialized with {'EfficientTAM' if use_tam else 'SAM'} tracker")
     print("Pose estimation models initialized")

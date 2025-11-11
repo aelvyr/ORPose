@@ -36,39 +36,11 @@
       "instances": []
     },
     {
-      "frame_id": 30,
+      "frame_id": 100,
       "instances": []
     },
     {
-      "frame_id": 60,
-      "instances": []
-    },
-    {
-      "frame_id": 90,
-      "instances": []
-    },
-    {
-      "frame_id": 120,
-      "instances": []
-    },
-    {
-      "frame_id": 150,
-      "instances": []
-    },
-    {
-      "frame_id": 180,
-      "instances": []
-    },
-    {
-      "frame_id": 210,
-      "instances": []
-    },
-    {
-      "frame_id": 240,
-      "instances": []
-    },
-    {
-      "frame_id": 270,
+      "frame_id": 200,
       "instances": []
     }
   ],
@@ -78,64 +50,15 @@
       "instances": []
     },
     {
-      "frame_id": 30,
+      "frame_id": 100,
       "instances": []
     },
     {
-      "frame_id": 60,
-      "instances": []
-    },
-    {
-      "frame_id": 90,
-      "instances": []
-    },
-    {
-      "frame_id": 120,
-      "instances": []
-    },
-    {
-      "frame_id": 150,
-      "instances": []
-    },
-    {
-      "frame_id": 180,
-      "instances": []
-    },
-    {
-      "frame_id": 210,
-      "instances": []
-    },
-    {
-      "frame_id": 240,
-      "instances": []
-    },
-    {
-      "frame_id": 270,
+      "frame_id": 200,
       "instances": []
     }
   ],
   "body_instances": [
-    {
-      "instances": []
-    },
-    {
-      "instances": []
-    },
-    {
-      "instances": []
-    },
-    {
-      "instances": []
-    },
-    {
-      "instances": []
-    },
-    {
-      "instances": []
-    },
-    {
-      "instances": []
-    },
     {
       "instances": []
     },
