@@ -79,6 +79,13 @@ You can also find the links to the model downloads in the configs folder from mm
 
 - **[evaluate_2d_pose.ipynb](evaluate_2d_pose.ipynb)**: Evaluates various 2D pose estimation methods against ground truth data.
 
+### Ground Truth Files
+- **[inter-annotator-variability.ipynb](inter-annotator-variability.ipynb)**: Jupyter notebook used to analyze and visualize inter-annotator variability. It computes agreement metrics across annotations from multiple annotators and provides insights into annotation consistency and reliability.
+
+- **[groundtruth_implementation_cha/b.ipynb](groundtruth_implementation_cha/b.ipynb)**: Jupyter notebook that implements the generation and optimization of 3D ground truth poses from annotated 2D data. It includes processing steps, visualization, and validation of the resulting 3D hand pose reconstructions.
+
+
+
 ### Processing and Utility Files
 - **[wholebody_pose_predictions.ipynb](wholebody_pose_predictions.ipynb)**: Generates 2D predictions using selected wholebody pose estimation models.
 
@@ -98,3 +105,11 @@ You can also find the links to the model downloads in the configs folder from mm
 - **[predictions_2d/](predictions_2d/)**: Stores 2D pose predictions from different models and methods for comparative evaluation.
 
 - **[helpers/](helpers/)**: Contains utility functions and modules that support the pipeline components, including pose estimation, optimization, visualization, and camera calibration tools.
+
+- **[final_labeled_poses/](final_labeled_poses/)**: Contains the annotated 2D poses and optimized 3D ground truth data used in the pipeline. The folder includes the following files:
+
+  - **hand_poses_2d_reprojected**: Reprojected 2D poses obtained from the optimized 3D ground truth.
+  - **hand_poses_2d_reprojected_expanded**: Reprojected 2D poses with empty in-between frames filled in for temporal continuity.
+  - **hand_poses_3d**: Optimized 3D ground truth poses generated from the optimized 2D annotated data.
+
+- **[inter-annotator/](inter-annotator/)**: Contains annotations from four different annotators, used to compute inter-annotator agreement metrics.
