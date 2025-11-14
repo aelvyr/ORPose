@@ -101,7 +101,7 @@ def project_points(points_3d, intrinsic_matrix, rot, t, distortion):
                                     distortion)
     return points_2d.squeeze()
 
-def load_camera_params(intr_path : str, extr_path : str, convert=True, suffix: str = "", named=False, import_extrinsics_matrix=False):
+def load_camera_params(intr_path : str, extr_path : str, convert=True, suffix: str = "", named=False, import_extrinsics_matrix=False, camnames=cam_names):
     """
     Loads camera params from specified paths
     Params:
@@ -123,7 +123,7 @@ def load_camera_params(intr_path : str, extr_path : str, convert=True, suffix: s
         camera_matrices = []
     with open(extr_path, 'r') as f:
         extr = json.load(f)
-    for camera in cam_names:
+    for camera in camnames:
         cam = f"{camera}{suffix}"
         with open(os.path.join(intr_path, f'{cam}_intrinsics.json'), 'r') as f:
             intr = json.load(f)['sensors']['RGB']
