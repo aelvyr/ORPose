@@ -21,11 +21,15 @@ conda activate orpose
 ```
 **Step 3** Install the [prerequisites](#prerequisites) (See below).
 
-**Step 4** Install other required packages from the env file (requirements.txt):
+**Step 4** Install other required packages from the env file (requirements_nolinks.txt):
 ```bash
-conda install -r requirements.txt
+conda install -r requirements_nolinks.txt
 ```
 
+**Step 5 (depending on pc)** In case that you get the RuntimeError: Cannot find a working triton installation.:
+```bash
+pip install https://github.com/woct0rdho/triton-windows/releases/download/v3.2.0-windows.post10/triton-3.2.0-cp311-cp311-win_amd64.whl
+```
 The code was developed on both Windows and MacOS with M1 chip.
 
 ### Prerequisites
@@ -69,6 +73,8 @@ You can also find the links to the model downloads in the configs folder from mm
 
 ### Main Pipeline Files
 - **[full_pipeline_v2.ipynb](full_pipeline_v2.ipynb)**: The primary pipeline for single-person 3D pose estimation. Includes all substeps from 2D pose generation through 3D reconstruction. Designed with execution checkpoints to avoid rerunning previous steps if output files exist.
+
+- **[full_pipeline.py](full_pipeline.py)**: The primary pipeline for single-person 3D pose estimation. Takes synced videos as inputs and outputs the 3d hand and body poses using the nobmc method (see **[fullpipeline_readme.md](fullpipeline_readme.md)**).
 
 - **[full_pipeline_v3.ipynb](full_pipeline_v3.ipynb)**: An experimental multi-person implementation of the pipeline, extending the functionality to track and reconstruct multiple individuals simultaneously.
 
