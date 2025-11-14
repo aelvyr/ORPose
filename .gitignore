@@ -6,15 +6,11 @@ comparisons/
 tim_paper/
 synced/
 synced_cut_long/
+json_to_mp4.ipynb
+triangulate_2dpoints.ipynb
 *.jpg
-chb/
-# …except keep anna1 (and all its contents)
-!chb/anna1/
-!chb/anna1/**
-!chb/anna2/
-!chb/anna2/**
-!chb/anna3/
-!chb/anna3/**
+
+short_test/
 
 EfficientTAM/
 sam2/
