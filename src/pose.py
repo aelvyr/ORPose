@@ -67,22 +67,37 @@ class PoseData:
     def _frame_count_for_camera(self, camera_name: str) -> int:
         """
         Return the expected number of frames for a camera based on project mode.
-        - Video mode: use cv2 to read frame count from <camera>.mp4
-        - Foto mode: number of images for that camera from project.cameras.foto_index
+
+        - Video mode: prefer the project's media_map (absolute paths), fall back to inputs/<dataset>/<camera>.mp4
+        - Foto mode: use the number of images for that camera from project.cameras.foto_index
         """
         if getattr(self.project, "foto_mode", False):
             # foto_index: dict[camera_name] -> list[Path]
             file_list = getattr(self.project.cameras, "foto_index", {}).get(camera_name, [])
             return len(file_list)
-        else:
-            # video mode, read .mp4 frame count
-            video = cv.VideoCapture(Path("inputs") / self.project.dataset_name / f"{camera_name}.mp4")
-            if not video.isOpened():
-                return 0
-            try:
-                return int(video.get(cv.CAP_PROP_FRAME_COUNT))
-            finally:
-                video.release()
+
+        # --- VIDEO MODE ---
+        # Prefer manifest-provided absolute path
+        src_path = None
+        try:
+            media_map = getattr(self.project.cameras, "media_map", {}) or {}
+            if camera_name in media_map:
+                src_path = media_map[camera_name]
+            else:
+                # legacy fallback
+                src_path = Path("inputs") / self.project.dataset_name / f"{camera_name}.mp4"
+        except Exception:
+            # ultra-defensive: legacy fallback
+            src_path = Path("inputs") / self.project.dataset_name / f"{camera_name}.mp4"
+
+        video = cv.VideoCapture(str(src_path))
+        if not video.isOpened():
+            return 0
+        try:
+            return int(video.get(cv.CAP_PROP_FRAME_COUNT))
+        finally:
+            video.release()
+
 
     def verify(self):
         """

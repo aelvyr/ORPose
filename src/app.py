@@ -8,6 +8,8 @@ from pathlib import Path
 import shutil
 import json
 import cv2
+import signal
+import traceback
 
 class App(QApplication):
     """
@@ -22,6 +24,8 @@ class App(QApplication):
         Otherwise, opens the project specified by the first argument.
         """
         super().__init__(sys.argv)
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
+        print("[App] SIGINT (Ctrl+C) enabled")
         dataset_name = self.parse_args().dataset
         if dataset_name is not None:
             self.open_project(dataset_name)
@@ -32,37 +36,25 @@ class App(QApplication):
             print("Launcher shown")
 
     def open_project(self, dataset_name, initial_camera_name=None, initial_frame_idx=None):
-        """
-        Open the project UI.
-
-        Args:
-            dataset_name (str): dataset/folder name under inputs/
-            initial_camera_name (str|None): optional camera to select on load
-            initial_frame_idx (int|None): optional exact frame index to jump to
-        """
         print("Dataset name:", dataset_name)
         try:
-            proj = Project(
+            self.current_project = Project(
                 self,
                 dataset_name,
                 initial_camera_name=initial_camera_name,
                 initial_frame_idx=initial_frame_idx,
             )
-
-            # Only touch window after confirming it exists
-            win = getattr(proj, "window", None)
+            win = getattr(self.current_project, "window", None)
             if win is not None:
                 win.show()
                 print("Project window shown")
             else:
-                # Defensive log (shouldn't happen if Project sets it)
-                print("[open_project] Warning: project.window is None after Project init")
-
-            self.current_project = proj
+                print("[open_project] Warning: project.window is None")
             return True
-        
+
         except Exception as e:
             print(f"[open_project] Failed to open project '{dataset_name}': {e}")
+            traceback.print_exc()  # <<< show where the error comes from
             self.current_project = None
             return False
 
@@ -94,93 +86,98 @@ class App(QApplication):
 
         return projects
 
+    def _write_manifest(self, name: str, media_paths, mode: str):
+        """
+        Write output_3d/<name>/project.json with paths *relative* to that folder
+        when possible. Falls back to absolute only if a relative path cannot be
+        formed (e.g., different drive on Windows).
+        """
+        from pathlib import Path
+        import os, json
+
+        base = Path("output_3d") / name
+        base.mkdir(parents=True, exist_ok=True)
+
+        rel_paths = []
+        for p in (media_paths or []):
+            p_abs = Path(p).resolve()
+            try:
+                # Prefer OS-level relpath so we can go outside the project tree
+                rel = os.path.relpath(str(p_abs), start=str(base))
+                rel_paths.append(rel)
+            except Exception:
+                # Different drive or other OS limitation → keep absolute
+                rel_paths.append(str(p_abs))
+
+        manifest = {"mode": mode, "media": rel_paths}
+        (base / "project.json").write_text(json.dumps(manifest, indent=2))
+
     def create_project(self, name, videos, persons):
         """
-        Creates a new project with the given name, videos, and persons.
-
-        Args:
-            name (str): The name of the project.
-            videos (list): A list of video files.
-            persons (list): A list of person files.
+        Create project that references original video files via manifest.
+        Copies only person npz files to output_3d.
         """
-        inputs = Path("inputs") / name
-        inputs.mkdir(parents=True, exist_ok=True)
-        for file in videos:
-            file = Path(file)
-            if file.resolve() == (inputs / file.name).resolve():
-                continue
-            shutil.copy(file, inputs / file.name)
+        # 1) Write manifest (videos)
+        self._write_manifest(name, videos, mode="video")
+
+        # 2) Per-person dirs + npz copies (unchanged behavior)
         for person, file in enumerate(persons):
-            person_path = Path("output_3d") / f"{name}_{person}" if len(persons) > 1 else Path("output_3d") / f"{name}"
+            person_path = Path("output_3d") / (f"{name}_{person}" if len(persons) > 1 else f"{name}")
             person_path.mkdir(parents=True, exist_ok=True)
             if file is not None:
-                if file.resolve() == (person_path / "hand_poses_2d.npz").resolve():
-                    continue
-                shutil.copy(file, person_path / "hand_poses_2d.npz")
+                src = Path(file)
+                dst = person_path / "hand_poses_2d.npz"
+                if src.resolve() != dst.resolve():
+                    shutil.copy(src, dst)
 
     def create_project_fotos(self, name, fotos, persons):
         """
-        Creates a new project with the given name, videos, and persons.
-
-        Args:
-            name (str): The name of the project.
-            fotos (list): A list of foto files.
-            persons (list): A list of person files.
+        Create project that references original image files via manifest.
+        Copies only person npz files to output_3d.
         """
-        inputs = Path("inputs") / name
-        inputs.mkdir(parents=True, exist_ok=True)
-        for file in fotos:
-            file = Path(file)
-            if file.resolve() == (inputs / file.name).resolve():
-                continue
-            shutil.copy(file, inputs / file.name)
+        # 1) Write manifest (fotos)
+        self._write_manifest(name, fotos, mode="foto")
+
+        # 2) Per-person dirs + npz copies (unchanged behavior)
         for person, file in enumerate(persons):
-            person_path = Path("output_3d") / f"{name}_{person}" if len(persons) > 1 else Path("output_3d") / f"{name}"
+            person_path = Path("output_3d") / (f"{name}_{person}" if len(persons) > 1 else f"{name}")
             person_path.mkdir(parents=True, exist_ok=True)
             if file is not None:
-                if file.resolve() == (person_path / "hand_poses_2d.npz").resolve():
-                    continue
-                shutil.copy(file, person_path / "hand_poses_2d.npz")
+                src = Path(file)
+                dst = person_path / "hand_poses_2d.npz"
+                if src.resolve() != dst.resolve():
+                    shutil.copy(src, dst)
 
     def open_project_specific_frame(self, name, videos, persons, frame_idx: int):
         """
-        Create/prepare project assets (like other flows), then open the project
-        at a specific frame of the single selected video.
+        Create/prepare project assets, then open the project at a specific frame.
+        Uses a manifest to reference the original video(s) without copying.
         """
-        # --- validation ---
         if not videos or len(videos) != 1:
             raise ValueError("open_project_specific_frame requires exactly one selected video.")
         video_path = Path(videos[0])
         if not video_path.exists():
             raise FileNotFoundError(f"Video not found: {video_path}")
 
-        # --- copy inputs (same behavior as other flows) ---
-        inputs_dir = Path("inputs") / name
-        inputs_dir.mkdir(parents=True, exist_ok=True)
-        dst_video = inputs_dir / video_path.name
-        if video_path.resolve() != dst_video.resolve():
-            shutil.copy(video_path, dst_video)
+        # 1) Write/overwrite manifest to reference the chosen video
+        self._write_manifest(name, [str(video_path)], mode="video")
 
-        # --- per-person setup (same behavior as other flows) ---
+        # 2) Per-person setup (same as before)
         num_persons = len(persons or [])
-
         for person_idx, npz_file in enumerate(persons or []):
             dir_name = name if num_persons == 1 else f"{name}_{person_idx}"
             out_dir = Path("output_3d") / dir_name
             out_dir.mkdir(parents=True, exist_ok=True)
-
             if npz_file:
                 src = Path(npz_file)
                 dst = out_dir / "hand_poses_2d.npz"
                 if src.resolve() != dst.resolve():
                     shutil.copy(src, dst)
 
-        # Determine camera name (video-mode cameras are basenames without extension)
+        # Camera name is the stem of the chosen video
         camera_name = video_path.stem
 
-        # --- open the project at the specific camera+frame ---
-        # If your existing open_project already builds and shows the UI,
-        # pass the initial camera/frame in (after updating Project to accept these).
+        # 3) Open project at specific camera+frame
         self.open_project(
             name,
             initial_camera_name=camera_name,

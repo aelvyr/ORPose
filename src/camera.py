@@ -4,72 +4,119 @@ from typing import List, Dict, Optional
 import cv2
 import numpy as np
 
+
+class Cameras:
+    """
+    Manager for a set of cameras in a dataset.
+    - In video mode: 'data' is the list of camera names (stems)
+    - In foto mode:  'data' is the list of camera names (prefixes),
+                     and 'foto_index' maps camera_name -> [Path to images] (sorted)
+    - media_map: optional mapping {camera_name -> absolute Path to video file}
+    """
+
+    IMAGE_EXTS = {".png", ".jpg", ".jpeg"}
+
+    def __init__(
+        self,
+        dataset_name: str,
+        cameras: List[str],
+        *,
+        foto_mode: bool = False,
+        foto_index: Optional[Dict[str, List[Path]]] = None,
+        media_map: Optional[Dict[str, Path]] = None,
+    ):
+        self.dataset_name = dataset_name
+        self.input_dir = Path("inputs") / dataset_name
+        self.data: List[str] = list(cameras)
+        self.foto_mode: bool = foto_mode
+        self.foto_index: Dict[str, List[Path]] = foto_index or {}
+        self.media_map: Dict[str, Path] = media_map or {}
+
+    def get(self, idx: int) -> "Camera":
+        """Return a Camera instance at index idx (clamped and safe)."""
+        n = len(self.data)
+        if n == 0:
+            raise RuntimeError(
+                f"No cameras available for dataset '{self.dataset_name}'. "
+                "Check your inputs folder or manifest."
+            )
+        if idx < 0 or idx >= n:
+            idx = 0
+        return Camera(self, idx)
+
+    def __len__(self) -> int:
+        return len(self.data)
+
+
 class Camera:
     """
-    Wrapper around either a video (mp4) OR a sequence of images for a camera.
+    A single camera view (video or foto sequence).
     """
 
-    def __init__(self, cameras: "Cameras", camera_idx: int, current_frame_idx: int = 0):
+    def __init__(self, cameras: Cameras, idx: int, current_frame_idx: int = 0):
         self.cameras = cameras
-        self.idx = camera_idx
-        self.current_frame_idx = current_frame_idx
-
-        # Common fields
-        self.frame_count = 0
-
-        # Video-specific
+        self.idx = int(idx)
+        self.current_frame_idx = max(0, int(current_frame_idx))
         self.video: Optional[cv2.VideoCapture] = None
-
-        # Foto-specific
         self.image_files: List[Path] = []
-
+        self.frame_count: int = 0
         self.load()
 
+    # ---------- identity ----------
+
     def name(self) -> str:
-        """Return the camera name."""
         return self.cameras.data[self.idx]
 
-    # ---------- paths ----------
+    # ---------- paths (video mode) ----------
 
     def video_path(self) -> str:
-        """Return the path to the .mp4 file for this camera (video mode)."""
-        return os.path.join(self.cameras.video_path, f"{self.name()}.mp4")
+        """
+        Path to the video file for this camera (video mode).
+        Prefer explicit path from media_map; otherwise inputs/<dataset>/<name>.mp4.
+        """
+        name = self.name()
+        if name in self.cameras.media_map:
+            return str(self.cameras.media_map[name])
+        return str(self.cameras.input_dir / f"{name}.mp4")
 
     # ---------- loading ----------
 
-    def load(self):
+    def load(self) -> None:
         """Load video (video mode) or list images (foto mode)."""
-        # Clean up any previous state
+        # cleanup any previous handle
         if self.video is not None:
-            self.video.release()
+            try:
+                self.video.release()
+            except Exception:
+                pass
             self.video = None
+
         self.image_files = []
         self.frame_count = 0
 
         if self.cameras.foto_mode:
-            # FOTO MODE: get the pre-built list of image files for this camera
             cam_name = self.name()
             self.image_files = list(self.cameras.foto_index.get(cam_name, []))
             self.frame_count = len(self.image_files)
         else:
-            # VIDEO MODE: open the mp4 file
             vp = self.video_path()
             self.video = cv2.VideoCapture(vp)
             if not self.video.isOpened():
-                # Fail gracefully: zero frames
                 self.frame_count = 0
             else:
                 self.frame_count = int(self.video.get(cv2.CAP_PROP_FRAME_COUNT))
 
-        # Clamp current frame index into valid range
-        self.current_frame_idx = max(0, min(self.current_frame_idx, max(0, self.frame_count - 1)))
+        self.current_frame_idx = (
+            max(0, min(self.current_frame_idx, self.frame_count - 1))
+            if self.frame_count > 0
+            else 0
+        )
 
     # ---------- navigation ----------
 
     def goto_frame(self, frame_idx: int) -> bool:
-        """Set the current frame index, if in range."""
         if 0 <= frame_idx < self.frame_count:
-            self.current_frame_idx = frame_idx
+            self.current_frame_idx = int(frame_idx)
             return True
         return False
 
@@ -83,54 +130,23 @@ class Camera:
             return None
 
         if self.cameras.foto_mode:
-            # Read from image sequence
             img_path = str(self.image_files[self.current_frame_idx])
             img_bgr = cv2.imread(img_path, cv2.IMREAD_COLOR)
             if img_bgr is None:
                 return None
             return cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
         else:
-            # Read from video
             if self.video is None:
                 return None
-            # Seek to frame and read
             self.video.set(cv2.CAP_PROP_POS_FRAMES, self.current_frame_idx)
-            success, frame_bgr = self.video.read()
-            if not success or frame_bgr is None:
+            ok, frame_bgr = self.video.read()
+            if not ok or frame_bgr is None:
                 return None
             return cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
 
     def __del__(self):
-        if self.video is not None:
-            self.video.release()
-
-
-class Cameras:
-    """
-    Wrapper around cameras in the dataset.
-
-    In video mode:
-      - data: list of camera names (each corresponds to <name>.mp4 in video_path)
-
-    In foto mode:
-      - data: list of camera names (derived from prefixes)
-      - foto_index: dict[camera_name] -> list[Path to image files] (sorted)
-    """
-
-    IMAGE_EXTS = {'.png', '.jpg', '.jpeg'}
-
-    def __init__(
-        self,
-        dataset_name: str,
-        cameras: List[str],
-        *,
-        foto_mode: bool = False,
-        foto_index: Optional[Dict[str, List[Path]]] = None
-    ):
-        self.video_path = os.path.join("inputs", dataset_name)
-        self.data = cameras
-        self.foto_mode = foto_mode
-        self.foto_index: Dict[str, List[Path]] = foto_index or {}
-
-    def get(self, idx: int, current_frame_idx: int = 0) -> Camera:
-        return Camera(self, idx, current_frame_idx)
+        try:
+            if self.video is not None:
+                self.video.release()
+        except Exception:
+            pass

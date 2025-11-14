@@ -17,22 +17,35 @@ pip install -r requirements.txt
 ### Opening a dataset
 
 When you start the application, you will be greeted with the launcher.
+```
+python src/app.py
+```
+
 From there you have three options:
 
-#### Create a new dataset from video files only.
+#### 1. Create a new dataset from video files only.
 To use this option you have to select some videos corresponding to the cameras which recorded the scene you want to label.
 Then you can click on the "Create new labeling from videos" button.
 Afterwards you will be prompted to give the project a name and specify how many people you want to label.
 
-#### Import a dataset from video files and pose label data.
+#### 2. Open an existing project.
+If you already have a dataset you are working on, you can select it in the dropdown in the bottom left corner and then click on the "Open..." button.
+
+#### 3. Label a specific frame of a Video.
+Click on "Select Videos" and choose the video. Then click on "Create labeling for specific frame".
+Afterwards you will be prompted to give the project a name, amount of people and frame number.
+
+#### 4. Label single fotos.
+Click on "Select Fotos" and choose all fotos you need to label. The fotos should have a specific camera name in their name (e.g. gopro9_datasetX.png) 
+Then click on "Create new labeling from Fotos".
+Afterwards you will be prompted to give the project a name and specify how many people you want to label.
+
+#### 5. Import a dataset from video files and pose label data.
 If you already have pose label data which you want to correct, you first also need to select some videos corresponding to the cameras which recorded the scene you want to correct the labeling for.
 And then you should also select the labeling data you want to correct before you can import click on the "Import labeling for correction data" button to import the data.
 Afterwards it will prompt you to give the project a name.
 
-#### Open an existing project.
-If you already have a dataset you are working on, you can select it in the dropdown in the bottom left corner and then click on the "Open..." button.
 
-You can also opt to open an existing project from the command line by specifying its name as the first argument on startup.
 
 ### Selecting a person
 
@@ -98,3 +111,7 @@ You can change the current camera for which you are labeling keypoints by choosi
 ### Saving your changes
 
 To save your changes, you can click the save icon in the toolbar or press `Ctrl+S`.
+
+### Dark Mode
+
+To change the background to black, you can click on the moon icon on the top right.

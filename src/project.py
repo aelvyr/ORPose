@@ -22,15 +22,56 @@ class Project:
         self.dataset_name = dataset_name
         self.window = None
         self.video_path = Path("inputs") / self.dataset_name
-        # Determine foto mode (folder contains only image files)
-        self.foto_mode = self._is_foto_mode()
-        # In foto mode we’ll also keep an index {camera_name: [file Paths...]}
-        self.foto_index = self._build_foto_camera_index() if self.foto_mode else {}
+        # Try to load manifest (preferred)
+        self.manifest = self._load_manifest()
+        self.media_map = {}  # for video: {camera_stem: Path}
+        self._manifest_foto_files = []  # for fotos: [Path, ...]
 
-        self.cameras = Cameras(self.dataset_name,
-                       cameras=sorted(self.foto_index.keys()) if self.foto_mode else self.available_cameras(),
-                       foto_mode=self.foto_mode,
-                       foto_index=self.foto_index)
+        if self.manifest:
+            mode = self.manifest.get("mode")
+            media = self.manifest.get("media", [])
+            if mode == "video":
+                # do NOT rely on inputs/ — use media_map
+                self.foto_mode = False
+                self.foto_index = {}
+                self.media_map = {Path(p).stem: Path(p) for p in media}
+                cameras_list = sorted(self.media_map.keys())
+            elif mode == "foto":
+                # foto mode: we’ll build foto_index from the provided file list
+                self.foto_mode = True
+                self._manifest_foto_files = [Path(p) for p in media]
+                self.foto_index = self._build_foto_camera_index()  # uses _iter_files()
+                cameras_list = sorted(self.foto_index.keys())
+            else:
+                # Unknown manifest -> fall back to old behavior
+                self.foto_mode = self._is_foto_mode()
+                self.foto_index = self._build_foto_camera_index() if self.foto_mode else {}
+                cameras_list = sorted(self.foto_index.keys()) if self.foto_mode else self.available_cameras()
+        else:
+            # No manifest -> legacy behavior (scan inputs/<dataset>)
+            self.foto_mode = self._is_foto_mode()
+            self.foto_index = self._build_foto_camera_index() if self.foto_mode else {}
+            cameras_list = sorted(self.foto_index.keys()) if self.foto_mode else self.available_cameras()
+
+
+
+        self.cameras = Cameras(
+            self.dataset_name,
+            cameras=cameras_list,
+            foto_mode=self.foto_mode,
+            foto_index=self.foto_index,
+            media_map=self.media_map,   # <-- NEW
+        )
+        if not self.cameras.data:
+        # No cameras found — fail fast with a helpful message
+            raise RuntimeError(
+                f"No cameras found for project '{self.dataset_name}'. "
+                "If you're using the new manifest flow, ensure output_3d/<project>/project.json "
+                "exists and its 'media' entries point to real files. "
+                "If you're using legacy inputs/, ensure inputs/<project>/ contains videos/images."
+            )
+        
+    
         self.dataset = PoseData(self)
 
         print(self.available_cameras())
@@ -64,6 +105,26 @@ class Project:
             if hasattr(self.window, "canvas") and hasattr(self.window.canvas, "viewport"):
                 self.window.canvas.viewport.render_current_frame()
 
+
+    def _manifest_path(self) -> Path:
+        return Path("output_3d") / self.dataset_name / "project.json"
+
+    def _load_manifest(self):
+        """
+        Return dict with keys:
+        - mode: "video" | "foto"
+        - media: [absolute file paths]
+        or None if no manifest.
+        """
+        mp = self._manifest_path()
+        if mp.exists():
+            try:
+                import json
+                return json.loads(mp.read_text())
+            except Exception:
+                return None
+        return None
+    
     # ---------- new helper ----------
     def _select_camera_by_name(self, camera_name: str):
         names = self.available_cameras()
@@ -244,7 +305,18 @@ class Project:
     # ---------- helpers ----------
 
     def _iter_files(self):
-        """Yield only files in the dataset folder (skip directories)."""
+        """Yield files for the dataset:
+        - If manifest present (video): yield media_map values
+        - If manifest present (foto): yield the foto file list
+        - Else: scan inputs/<dataset>
+        """
+        if self.manifest:
+            if not self.foto_mode:
+                return list(self.media_map.values())
+            else:
+                return list(self._manifest_foto_files)
+
+        # legacy fallback (no manifest)
         if not self.video_path.exists():
             return []
         return [p for p in self.video_path.iterdir() if p.is_file()]
