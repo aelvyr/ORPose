@@ -95,18 +95,21 @@ class App(QApplication):
         from pathlib import Path
         import os, json
 
-        base = Path("output_3d") / name
+        # IMPORTANT: resolve() so base is also a UNC path if H: is a network drive
+        base = (Path("output_3d") / name).resolve()
         base.mkdir(parents=True, exist_ok=True)
 
         rel_paths = []
         for p in (media_paths or []):
             p_abs = Path(p).resolve()
             try:
-                # Prefer OS-level relpath so we can go outside the project tree
+                # Now both p_abs and base are UNC (or both local), so relpath works
                 rel = os.path.relpath(str(p_abs), start=str(base))
                 rel_paths.append(rel)
-            except Exception:
-                # Different drive or other OS limitation → keep absolute
+            except ValueError:
+                # Truly different mount (e.g., local C: vs network share) → keep absolute
+                print(f"[manifest] Warning: {p_abs} not on same mount as {base}, "
+                    "storing absolute path in project.json")
                 rel_paths.append(str(p_abs))
 
         manifest = {"mode": mode, "media": rel_paths}

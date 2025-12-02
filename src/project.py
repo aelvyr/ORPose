@@ -117,13 +117,27 @@ class Project:
         or None if no manifest.
         """
         mp = self._manifest_path()
-        if mp.exists():
-            try:
-                import json
-                return json.loads(mp.read_text())
-            except Exception:
-                return None
-        return None
+        if not mp.exists():
+            return None
+
+        try:
+            import json
+            raw = json.loads(mp.read_text())
+        except Exception:
+            return None
+
+        media = raw.get("media", [])
+        base = mp.parent
+
+        resolved_media = []
+        for p in media:
+            p_path = Path(p)
+            if not p_path.is_absolute():
+                p_path = (base / p_path).resolve()
+            resolved_media.append(str(p_path))
+
+        raw["media"] = resolved_media
+        return raw
     
     # ---------- new helper ----------
     def _select_camera_by_name(self, camera_name: str):
