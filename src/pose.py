@@ -36,27 +36,33 @@ class PoseData:
     - persons: the number of persons in the dataset.
     """
     def __init__(self, project):
-        """
-        Initialize the PoseData object with the data specified in the dataset files located in "output_3d/dataset_name/".
-
-        Args:
-            dataset_name (str): The name of the dataset.
-        """
         self.name = project.dataset_name
         self.project = project
         output_3d = Path("output_3d")
-        legacy = output_3d / project.dataset_name
-        if legacy.exists():
-            self.paths = [(0, legacy)]
+
+        # --- NEW PERSON DISCOVERY LOGIC ---
+        # 1) Prefer numbered person folders: <name>_0, <name>_1, ...
+        numbered_paths = []
+        i = 0
+        while True:
+            path = output_3d / f"{project.dataset_name}_{i}"
+            if not path.exists():
+                break
+            numbered_paths.append((i, path))
+            i += 1
+
+        if numbered_paths:
+            # Multi-person project: use numbered dirs
+            self.paths = numbered_paths
         else:
-            i = 0
-            self.paths = []
-            while True:
-                path = output_3d / f"{project.dataset_name}_{i}"
-                if not path.exists():
-                    break
-                self.paths += [(i, path)]
-                i += 1
+            # Single-person / legacy project: use unsuffixed folder if it exists
+            legacy = output_3d / project.dataset_name
+            if legacy.exists():
+                self.paths = [(0, legacy)]
+            else:
+                # Nothing found – just start with an empty list and let verify() create if needed
+                self.paths = []
+
         self.load()
         self.persons = len(self.paths)
         self.verify()
