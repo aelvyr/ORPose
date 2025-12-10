@@ -29,7 +29,7 @@ class Keypoint(Circle):
             color (str): The color of the keypoint.
             picker (bool): Whether the keypoint is pickable.
         """
-        super().__init__((x, y), radius=radius, color=color, picker=picker, visible=False)
+        super().__init__((x, y), radius=radius, color=color, picker=picker, visible=False, linewidth=3.0)
         self.index = index
         self.x = x
         self.y = y
