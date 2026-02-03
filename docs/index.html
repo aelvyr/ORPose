@@ -18,7 +18,7 @@
   <link rel="stylesheet"
         href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
   <link rel="stylesheet" href="./static/css/index.css">
-  <link rel="icon" href="./static/images/balgrist.svg">
+  <link rel="icon" href="./static/images/favicon.svg">
 
   <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
   <script defer src="./static/js/fontawesome.all.min.js"></script>
@@ -27,47 +27,6 @@
   <script src="./static/js/index.js"></script>
 </head>
 <body>
-<!-- Navigation bar
-<nav class="navbar" role="navigation" aria-label="main navigation">
-  <div class="navbar-brand">
-    <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false">
-      <span aria-hidden="true"></span>
-      <span aria-hidden="true"></span>
-      <span aria-hidden="true"></span>
-    </a>
-  </div>
-  <div class="navbar-menu">
-    <div class="navbar-start" style="flex-grow: 1; justify-content: center;">
-      <a class="navbar-item" href="https://keunhong.com">
-      <span class="icon">
-          <i class="fas fa-home"></i>
-      </span>
-      </a>
-
-      <div class="navbar-item has-dropdown is-hoverable">
-        <a class="navbar-link">
-          More Research
-        </a>
-        <div class="navbar-dropdown">
-          <a class="navbar-item" href="https://hypernerf.github.io">
-            HyperNeRF
-          </a>
-          <a class="navbar-item" href="https://nerfies.github.io">
-            Nerfies
-          </a>
-          <a class="navbar-item" href="https://latentfusion.github.io">
-            LatentFusion
-          </a>
-          <a class="navbar-item" href="https://photoshape.github.io">
-            PhotoShape
-          </a>
-        </div>
-      </div>
-    </div>
-
-  </div>
-</nav>
-Navigation bar -->
 
 <section class="hero">
   <div class="hero-body">
@@ -79,7 +38,7 @@ Navigation bar -->
             <span class="author-block">
               <a href="https://github.com/aelvyr">Valery Fischer</a><sup>*1,2</sup>,</span>
             <span class="author-block">
-              Alan Magdaleno<sup>1,2</sup>,</span>
+              <a href="https://scholar.google.com/citations?hl=de&user=MkfjwdMAAAAJ">Alan Magdaleno</a><sup>1,2</sup>,</span>
             <span class="author-block">
               <a href="https://scholar.google.com/citations?hl=de&user=mPOyqC0AAAAJ">Anna-Katharina Calek</a><sup>1</sup>,
             </span>
@@ -87,13 +46,13 @@ Navigation bar -->
               <a href="https://scholar.google.com/citations?user=ulEV9OkAAAAJ&hl=en">Nicola Cavalcanti</a><sup>1</sup>,
             </span>
             <span class="author-block">
-              Nathan Hoffman<sup>1</sup>,
+              <a href="https://scholar.google.com/citations?hl=de&user=SqXyUS8AAAAJ">Nathan Hoffman</a><sup>1</sup>,
             </span>
             <span class="author-block">
               Christoph Germann<sup>1</sup>,
             </span>
             <span class="author-block">
-              Joschua Wüthrich<sup>1</sup>,
+              <a href="https://scholar.google.com/citations?user=YoKiuYMAAAAJ&hl=de">Joshua Wüthrich</a><sup>1</sup>,
             </span>
             <span class="author-block">
               <a href="https://scholar.google.com/citations?user=a1-qFsMAAAAJ&hl=en">Max Krähenmann</a><sup>1</sup>,
@@ -126,18 +85,18 @@ Navigation bar -->
                   <span>Paper</span>
                 </a>
               </span> 
-              <!-- <span class="link-block">
-                <a href="https://arxiv.org/abs/2011.12948"
+              <span class="link-block">
+                <a href="https://arxiv.org/abs/2601.15918"
                    class="external-link button is-normal is-rounded is-dark">
                   <span class="icon">
                       <i class="ai ai-arxiv"></i>
                   </span>
                   <span>arXiv</span>
                 </a>
-              </span> -->
+              </span> 
               <!-- Video Link. -->
-              <!--<span class="link-block">
-                <a href="https://www.youtube.com/watch?v=MrKrnHhk8IA"
+              <span class="link-block">
+                <a href="https://youtu.be/FC45f2tiJ7A"
                    class="external-link button is-normal is-rounded is-dark">
                   <span class="icon">
                       <i class="fab fa-youtube"></i>
@@ -145,16 +104,15 @@ Navigation bar -->
                   <span>Video</span>
                 </a>
               </span>
-              -->
               <!-- Code Link. -->
               <span class="link-block">
                 <a href="https://github.com/aelvyr/ORPose"
                    class="external-link button is-normal is-rounded is-dark">
                   <span class="icon">
-                      <i class="fab fa-github"></i>
+                    <i class="fab fa-github"></i>
                   </span>
                   <span>Code</span>
-                  </a>
+                </a>
               </span>
               <!-- Dataset Link. -->
               <span class="link-block">
@@ -249,16 +207,48 @@ Navigation bar -->
         </div>
     <!--/ Data Set. -->
     <!-- dataset video. -->
-        <div class="publication-video">
-          <video id="teaser" controls playsinline height="100%">
-            <source src="./static/videos/dataset.mp4" type="video/mp4">
+        <div id="results-carousel" class="carousel results-carousel">
+
+        <div class="item">
+          <video autoplay muted loop playsinline controls>
+            <source src="./static/videos/Spp1.mp4" type="video/mp4">
+          </video>
+        </div>
+
+        <div class="item">
+          <video autoplay muted loop playsinline controls>
+            <source src="./static/videos/Spp3.mp4" type="video/mp4">
+          </video>
+        </div>
+
+        <div class="item">
+          <video autoplay muted loop playsinline controls>
+            <source src="./static/videos/Spp4.mp4" type="video/mp4">
+          </video>
+        </div>
+
+        <div class="item">
+          <video autoplay muted loop playsinline controls>
+            <source src="./static/videos/Spp6.mp4" type="video/mp4">
           </video>
         </div>
       </div>
-    </div>
     <!--/ dataset video. -->
   </div>
 </section>
+
+<!-- Bulma Carousel JS -->
+<script src="https://cdn.jsdelivr.net/npm/bulma-carousel@4.0.24/dist/js/bulma-carousel.min.js"></script>
+
+<script>
+  bulmaCarousel.attach('#results-carousel', {
+    slidesToShow: 1,
+    slidesToScroll: 1,
+    loop: true,
+    autoplay: false,
+    pauseOnHover: true,
+  });
+</script>
 
 <section class="section">
   <div class="container is-max-desktop">
@@ -274,13 +264,14 @@ Navigation bar -->
       </div>
     </div>
     <!--/ Labeling software. -->
+    <div class="columns is-centered">
       <div class="column is-full has-text-centered">
-        <figure class="image is-3by2">
+        <figure class="image">
           <img src="./static/images/labeling.jpg" alt="Image 2">
         </figure>
+        <p class="has-text-grey">Labeling interface after annotating and zooming into a selected frame.</p>
       </div>
     </div>
-    <div class="column is-full has-text-centered"><p class="has-text-grey">Labeling interface after annotating and zooming into a selected frame.</p></div>
     <!--/ Labeling software image. -->
   </div>
 </section>
