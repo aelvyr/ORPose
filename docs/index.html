@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="description"
+        content="A training-free multi-view pipeline using off-the-shelf models is introduced for robust 3D hand pose estimation in challenging surgical environments, accompanied by a large annotated benchmark dataset and demonstrating substantial error reductions over existing baselines.">
+  <meta name="keywords" content="Hand Pose Estimation, Benchmark Dataset, Surgery, Multi-view">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A Multi-View Pipeline and Benchmark Dataset for 3D Hand Pose Estimation in Surgery</title>
+
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro"
+        rel="stylesheet">
+
+  <link rel="stylesheet" href="./static/css/bulma.min.css">
+  <link rel="stylesheet" href="./static/css/bulma-carousel.min.css">
+  <link rel="stylesheet" href="./static/css/bulma-slider.min.css">
+  <link rel="stylesheet" href="./static/css/fontawesome.all.min.css">
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
+  <link rel="stylesheet" href="./static/css/index.css">
+  <link rel="icon" href="./static/images/favicon.svg">
+
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <script defer src="./static/js/fontawesome.all.min.js"></script>
+  <script src="./static/js/bulma-carousel.min.js"></script>
+  <script src="./static/js/bulma-slider.min.js"></script>
+  <script src="./static/js/index.js"></script>
+</head>
+<body>
+
+<section class="hero">
+  <div class="hero-body">
+    <div class="container is-max-desktop">
+      <div class="columns is-centered">
+        <div class="column has-text-centered">
+          <h1 class="title is-1 publication-title">A Multi-View Pipeline and Benchmark Dataset for 3D Hand Pose Estimation in Surgery</h1>
+          <div class="is-size-5 publication-authors">
+            <span class="author-block">
+              <a href="https://github.com/aelvyr">Valery Fischer</a><sup>*1,2</sup>,</span>
+            <span class="author-block">
+              <a href="https://scholar.google.com/citations?hl=de&user=MkfjwdMAAAAJ">Alan Magdaleno</a><sup>1,2</sup>,</span>
+            <span class="author-block">
+              <a href="https://scholar.google.com/citations?hl=de&user=mPOyqC0AAAAJ">Anna-Katharina Calek</a><sup>1</sup>,
+            </span>
+            <span class="author-block">
+              <a href="https://scholar.google.com/citations?user=ulEV9OkAAAAJ&hl=en">Nicola Cavalcanti</a><sup>1</sup>,
+            </span>
+            <span class="author-block">
+              <a href="https://scholar.google.com/citations?hl=de&user=SqXyUS8AAAAJ">Nathan Hoffman</a><sup>1</sup>,
+            </span>
+            <span class="author-block">
+              Christoph Germann<sup>1</sup>,
+            </span>
+            <span class="author-block">
+              <a href="https://scholar.google.com/citations?user=YoKiuYMAAAAJ&hl=de">Joshua Wüthrich</a><sup>1</sup>,
+            </span>
+            <span class="author-block">
+              <a href="https://scholar.google.com/citations?user=a1-qFsMAAAAJ&hl=en">Max Krähenmann</a><sup>1</sup>,
+            </span>
+            <span class="author-block">
+              <a href="https://scholar.google.com/citations?user=8vBn3bIAAAAJ&hl=de">Mazda Farshad</a><sup>1</sup>,
+            </span>
+            <span class="author-block">
+              <a href="https://scholar.google.com/citations?user=nQ4B3BgAAAAJ&hl=de">Philipp Fürnstahl</a><sup>1</sup>,
+            </span>
+            <span class="author-block">
+              <a href="https://scholar.google.com/citations?hl=de&user=6JewdrMAAAAJ">Lilian Calvet</a><sup>1</sup>
+            </span>
+          </div>
+
+          <div class="is-size-5 publication-authors">
+            <span class="author-block"><sup>1</sup>Research in Orthopedic Computer Science, University Hospital Balgrist, University of Zurich, Switzerland, </span>
+            <span class="author-block"><sup>2</sup>ETH Zurich, Switzerland</span>
+          </div>
+
+          <div class="column has-text-centered">
+            <!-- PDF Link. -->
+            <div class="publication-links">
+              <span class="link-block">
+                <a href="https://arxiv.org/abs/2601.15918"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="fas fa-file-pdf"></i>
+                  </span>
+                  <span>Paper</span>
+                </a>
+              </span> 
+              <span class="link-block">
+                <a href="https://arxiv.org/abs/2601.15918"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="ai ai-arxiv"></i>
+                  </span>
+                  <span>arXiv</span>
+                </a>
+              </span> 
+              <!-- Video Link. -->
+              <span class="link-block">
+                <a href="https://youtu.be/FC45f2tiJ7A"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="fab fa-youtube"></i>
+                  </span>
+                  <span>Video</span>
+                </a>
+              </span>
+              <!-- Code Link. -->
+              <span class="link-block">
+                <a href="https://github.com/aelvyr/ORPose"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                    <i class="fab fa-github"></i>
+                  </span>
+                  <span>Code</span>
+                </a>
+              </span>
+              <!-- Dataset Link. -->
+              <span class="link-block">
+                <a href=""
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="far fa-images"></i>
+                  </span>
+                  <span>Data</span>
+                  </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<section class="section">
+  <div class="container is-max-desktop">
+    <!-- Abstract. -->
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-full">
+        <div class="content has-text-justified" style="margin-top: -3em;">
+          <p> 
+            Accurate 3D hand pose estimation supports surgical applications such as skill assessment and robot-assisted interventions. However, surgical environments pose severe challenges, including intense and localized lighting, frequent occlusions by instruments or staff, and uniform hand appearance due to gloves, combined with a scarcity of annotated datasets for reliable model training.
+            We propose a robust multi-view pipeline for 3D hand pose estimation in surgical contexts that requires no domain-specific fine-tuning and relies solely on off-the-shelf pretrained models. The pipeline integrates reliable person detection, whole-body pose estimation, and state-of-the-art 2D hand keypoint prediction on tracked hand crops, followed by a constrained 3D optimization. In addition, we introduce a novel surgical benchmark dataset comprising over 68,000 frames and 3,000 manually annotated 2D hand poses with triangulated 3D ground truth, recorded in a replica operating room under varying levels of scene complexity.
+            Quantitative experiments demonstrate that our method consistently outperforms baselines, achieving a 31% reduction in 2D mean joint error and a 76% reduction in 3D mean per-joint position error.
+            Our work establishes a strong baseline for 3D hand pose estimation in surgery, providing both a training-free pipeline and a comprehensive annotated dataset to facilitate future research in surgical computer vision.
+          </p>
+        </div>
+        <div class="publication-video">
+          <video id="teaser" autoplay muted loop playsinline height="100%">
+            <source src="./static/videos/teaser.mp4"
+                    type="video/mp4">
+          </video>
+          <!--Make centered-->
+          <p class="has-text-grey has-text-centered">
+            Our method reconstructs accurate 3D hand poses from multi-view images of real surgical scenes and can bring them to life using SMPL in a virtual operating room.
+          </p>
+        </div>
+      </div>  
+    </div>
+  </div>
+</section>
+
+
+
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <!-- Pipeline. -->
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-full">
+        <h2 class="title is-3">Pipeline</h2>
+        <div class="content has-text-justified">
+          <p>
+           We present a robust multi-view pipeline for 3D hand pose estimation in surgical scenes that operates without any domain-specific training. The method leverages off-the-shelf pretrained models for person detection, whole-body pose estimation, and high-accuracy 2D hand keypoint prediction applied to temporally tracked hand regions. Multi-view 2D keypoints are then fused using a constrained 3D optimization that enforces multi-view consistency, enabling reliable hand pose reconstruction despite occlusions, challenging lighting, and visually uniform surgical gloves.
+          </p>
+        </div>
+    <!--/ Pipeline. -->
+    <!-- Pipeline video. -->
+        <div class="publication-video">
+          <video id="teaser" controls playsinline height="100%">
+            <source src="./static/videos/pipeline.mp4" type="video/mp4">
+          </video>
+        </div>
+      </div>
+    </div>
+    <!--/ Pipeline video. -->
+  </div>
+</section>
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <!-- Data Set. -->
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-full">
+        <h2 class="title is-3">Benchmark dataset</h2>
+        <div class="content has-text-justified">
+          <p>
+            We introduce a first-of-its-kind multi-view dataset capturing real surgical hand motion in a fully realistic operating-room
+            replica. Recorded with up to 12 synchronized 4K cameras and precise calibration, the dataset delivers over 68,000
+            multi-view frames of complex surgical interaction; providing an unprecedented foundation for advancing 3D hand pose 
+            estimation in surgery.
+          </p>
+          <p>
+            To reflect the true challenges of the operating room, we designed a structured hierarchy of six complexity levels. These range
+            from clean single-surgeon scenarios with full hand visibility to highly dynamic, multi-person procedures with severe occlusions and,
+            fast tool use. This progression enables researchers to rigorously stress-test algorithms from
+            controlled conditions to real clinical workflows.
+          </p>
+        </div>
+    <!--/ Data Set. -->
+    <!-- dataset video. -->
+        <div id="results-carousel" class="carousel results-carousel">
+
+        <div class="item">
+          <video autoplay muted loop playsinline controls>
+            <source src="./static/videos/Spp1.mp4" type="video/mp4">
+          </video>
+        </div>
+
+        <div class="item">
+          <video autoplay muted loop playsinline controls>
+            <source src="./static/videos/Spp3.mp4" type="video/mp4">
+          </video>
+        </div>
+
+        <div class="item">
+          <video autoplay muted loop playsinline controls>
+            <source src="./static/videos/Spp4.mp4" type="video/mp4">
+          </video>
+        </div>
+
+        <div class="item">
+          <video autoplay muted loop playsinline controls>
+            <source src="./static/videos/Spp6.mp4" type="video/mp4">
+          </video>
+        </div>
+      </div>
+    <!--/ dataset video. -->
+  </div>
+</section>
+
+<!-- Bulma Carousel JS -->
+<script src="https://cdn.jsdelivr.net/npm/bulma-carousel@4.0.24/dist/js/bulma-carousel.min.js"></script>
+
+<script>
+  bulmaCarousel.attach('#results-carousel', {
+    slidesToShow: 1,
+    slidesToScroll: 1,
+    loop: true,
+    autoplay: false,
+    pauseOnHover: true,
+  });
+</script>
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <!-- Labeling software. -->
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-full">
+        <h2 class="title is-3">Labeling software</h2>
+        <div class="content has-text-justified">
+          <p>
+            We also contribute a custom annotation tool to efficiently generate high-quality ground truth labels. The software provides an intuitive graphical user interface that allows annotators to select the sequence to be labeled and specify the number of people present in the scene.
+          </p>
+        </div>
+      </div>
+    </div>
+    <!--/ Labeling software. -->
+    <div class="columns is-centered">
+      <div class="column is-full has-text-centered">
+        <figure class="image">
+          <img src="./static/images/labeling.png" alt="Image 2">
+        </figure>
+        <p class="has-text-grey">Labeling interface after annotating and zooming into a selected frame.</p>
+      </div>
+    </div>
+    <!--/ Labeling software image. -->
+  </div>
+</section>
+
+<!-- Acknowledgements-->
+<section class="section" id="Acknowledgements">
+    <div class="container is-max-desktop content">
+        <h2 class="title">Acknowledgements</h2>
+        This work has been supported by the <a href="https://or-x.ch/" target="_blank" rel="noopener noreferrer">OR-X</a> - a swiss national research
+        infrastructure for translational surgery - and associated funding by the University of Zurich and University Hospital Balgrist.
+  </div>
+</section>
+<!--/ Acknowledgements-->
+
+<section class="section" id="BibTeX">
+  <div class="container is-max-desktop content">
+    <h2 class="title">BibTeX</h2>
+    <pre><code>@article{fischer2026multiviewpipelinebenchmarkdataset,
+      title={A Multi-View Pipeline and Benchmark Dataset for 3D Hand Pose Estimation in Surgery}, 
+      author={Valery Fischer and Alan Magdaleno and Anna-Katharina Calek and Nicola Cavalcanti and Nathan Hoffman and Christoph Germann and Joschua Wüthrich and Max Krähenmann and Mazda Farshad and Philipp Fürnstahl and Lilian Calvet},
+      year={2026},
+      eprint={2601.15918},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2601.15918}, 
+}</code></pre>
+  </div>
+</section>
+
+
+<footer class="footer">
+  <div class="container">
+    <div class="columns is-centered">
+      <div class="column is-8">
+        <div class="content">
+          <p>
+            This website is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">Creative
+            Commons Attribution-ShareAlike 4.0 International License</a>.
+          </p>
+           <p>
+              Website template from <a href="https://nerfies.github.io/" target="_blank">Nerfies</a>.
+            </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
