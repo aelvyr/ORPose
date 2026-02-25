@@ -74,7 +74,7 @@ You can also find the links to the model downloads in the configs folder from mm
 ### Main Pipeline Files
 - **[full_pipeline_v2.ipynb](full_pipeline_v2.ipynb)**: The primary pipeline for single-person 3D pose estimation. Includes all substeps from 2D pose generation through 3D reconstruction. Designed with execution checkpoints to avoid rerunning previous steps if output files exist.
 
-- **[full_pipeline.py](full_pipeline.py)**: The primary pipeline for single-person 3D pose estimation. Takes synced videos as inputs and outputs the 3d hand and body poses using the nobmc method (see **[fullpipeline_readme.md](fullpipeline_readme.md)**).
+- **[full_pipeline.py](full_pipeline.py)**: The primary pipeline for single-person 3D pose estimation. Takes synced videos as inputs and outputs the 3d hand and body poses using the nobmc method.
 
 - **[full_pipeline_v3.ipynb](full_pipeline_v3.ipynb)**: An experimental multi-person implementation of the pipeline, extending the functionality to track and reconstruct multiple individuals simultaneously.
 
